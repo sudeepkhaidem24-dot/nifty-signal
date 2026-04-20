@@ -180,7 +180,7 @@ html,body{background:var(--bg);color:var(--t1);font-family:var(--sans);min-heigh
 <div class="lov" id="loginScreen">
   <div class="lbox">
     <div class="llogo">NIFTY SIGNAL TERMINAL</div>
-    <div class="lsub">Angel One SmartAPI · Live Feed · Client K50033873</div>
+    <div class="lsub">Angel One SmartAPI · Google Proxy ✓ Active · Client K50033873</div>
 
     <label class="llbl">Angel One Password</label>
     <input class="linp" type="password" id="lpwd" placeholder="Enter your password" autocomplete="current-password">
@@ -546,6 +546,16 @@ html,body{background:var(--bg);color:var(--t1);font-family:var(--sans);min-heigh
 ============================================================ -->
 <div class="tc" id="tab-set">
   <div class="card">
+    <div class="clbl">⚡ Google Apps Script Proxy URL (for live Angel One data)</div>
+    <div style="font-size:11px;color:var(--t2);line-height:1.8;margin-bottom:10px">
+      Paste your Google Apps Script deployment URL here to get exact live NIFTY price from Angel One. See instructions below.
+    </div>
+    <div class="setr"><div class="setlbl">Proxy URL</div></div>
+    <input class="setinp" id="sproxy" style="width:100%;margin-bottom:8px" placeholder="https://script.google.com/macros/s/YOUR_ID/exec" value="https://script.google.com/macros/s/AKfycbyDzcUte5MJeTSGND07Ay-yVcnT2615IAxmXZu-VqD_9YDDR--XVikxdKCefCOTPFqE0Q/exec">
+    <button class="bsave" style="margin-top:0" onclick="saveProxy()">Save Proxy URL</button>
+  </div>
+
+  <div class="card">
     <div class="clbl">Trading Parameters</div>
     <div class="setr"><div class="setlbl">Lot Qty (NIFTY)</div><input class="setinp" id="sq" type="number" value="65"></div>
     <div class="setr"><div class="setlbl">Total Capital (₹)</div><input class="setinp" id="sc" type="number" value="500000"></div>
@@ -653,6 +663,12 @@ function saveDailyData() {
   price = D.prev_close;
   renderSR(); renderOI(); renderPlan();
   alert('Daily data updated ✓');
+}
+
+function saveProxy() {
+  const url = document.getElementById('sproxy').value.trim();
+  if(url) { AO.proxyUrl = url; localStorage.setItem('nst_proxy', url); alert('Proxy URL saved ✓ — Login now for live Angel One data'); }
+  else { AO.proxyUrl=''; localStorage.removeItem('nst_proxy'); alert('Proxy URL cleared'); }
 }
 
 function clearAll() { if(confirm('Clear all?')){localStorage.clear();trades=[];renderLog();updateStats();alert('Done');} }
@@ -998,9 +1014,10 @@ const AO = {
   apiKey    : 'DqHDBaqt',
   clientId  : 'K50033873',
   secretKey : 'f8b25e1c-3b2a-47d9-9608-d5c5601157d1',
-  loginUrl  : 'https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword',
   wsUrl     : 'wss://smartapisocket.angelbroking.com/smart-stream',
-  niftyToken: '99926000',   // NIFTY 50 index token on NSE
+  niftyToken: '99926000',
+  proxyUrl  : 'https://script.google.com/macros/s/AKfycbyDzcUte5MJeTSGND07Ay-yVcnT2615IAxmXZu-VqD_9YDDR--XVikxdKCefCOTPFqE0Q/exec',
+  loginUrl  : 'https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword',
 };
 
 let aoSession = null;  // { jwtToken, feedToken, refreshToken }
@@ -1058,14 +1075,67 @@ function skipLogin() {
 }
 
 /* ================================================================
-   ANGEL ONE — AUTO LOGIN + WEBSOCKET
-   Credentials hardcoded — no password entry needed
-   Tries 6 CORS proxies in parallel for login
-   WebSocket connects directly (no CORS restriction on WS)
+   ANGEL ONE — LOGIN VIA GOOGLE APPS SCRIPT PROXY
+   No CORS issues — Google's servers call Angel One directly
 ================================================================ */
-
-/* ---- Auto-login on page load ---- */
 async function doAutoLogin(pwd, totp) {
+  const proxyUrl = AO.proxyUrl || localStorage.getItem('nst_proxy') || '';
+
+  if(proxyUrl) {
+    // ---- USE GOOGLE APPS SCRIPT PROXY (recommended) ----
+    const res = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'login', password: pwd, totp }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const data = await res.json();
+    if(data.status && data.data?.jwtToken) return data.data;
+    throw new Error(data.message || 'Login failed via proxy');
+  }
+
+  // ---- FALLBACK: Try direct CORS proxies ----
+  const body = JSON.stringify({ clientcode: AO.clientId, password: pwd, totp });
+  const hdrs = { 'Content-Type':'application/json','Accept':'application/json',
+    'X-APIKey':AO.apiKey,'X-SourceID':'WEB','X-ClientLocalIP':'192.168.1.1',
+    'X-ClientPublicIP':'49.47.140.217','X-MACAddress':'00-00-00-00-00-00','X-PrivateKey':AO.apiKey };
+  const corsProxies = [
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://thingproxy.freeboard.io/fetch/${u}`,
+  ];
+  const attempts = corsProxies.map(px =>
+    fetch(px(AO.loginUrl), { method:'POST', headers:hdrs, body, signal:AbortSignal.timeout(9000) })
+      .then(r=>r.text()).then(raw => {
+        let d; try { d=JSON.parse(raw); } catch(e) { const j=JSON.parse(raw); d=JSON.parse(j.contents||j.body||'null'); }
+        if(d?.status && d?.data?.jwtToken) return d.data;
+        throw new Error(d?.message||'no token');
+      })
+  );
+  return Promise.any(attempts);
+}
+
+async function doLogin() {
+  const pwd   = document.getElementById('lpwd').value.trim();
+  const totp  = document.getElementById('ltotp').value.trim();
+  const errEl = document.getElementById('lerr');
+  const btn   = document.getElementById('lbtn');
+  errEl.textContent = '';
+  if(!pwd)            { errEl.textContent = 'Enter your Angel One password'; return; }
+  if(totp.length < 6) { errEl.textContent = 'Enter 6-digit TOTP from Google Authenticator'; return; }
+  btn.disabled = true; btn.textContent = 'Logging in...';
+  try {
+    aoSession = await doAutoLogin(pwd, totp);
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('mstatus').textContent = '● ANGEL ONE LIVE';
+    setLiveBadge('live');
+    connectWebSocket();
+    startMainLoop();
+  } catch(e) {
+    errEl.textContent = '⚠ '+( e.message.includes('proxy')?'Login failed. Check password/TOTP.':'Browser blocked Angel One. Set up Google Proxy in Settings.');
+    btn.disabled = false; btn.textContent = 'Login & Start Live Feed';
+  }
+}
   const body = JSON.stringify({ clientcode: AO.clientId, password: pwd, totp });
   const hdrs = {
     'Content-Type'     : 'application/json',
@@ -1210,13 +1280,111 @@ function connectWebSocket() {
 
 /* ================================================================
    LIVE PRICE ENGINE
-   Priority 1: Angel One WebSocket (exact live — when logged in)
-   Priority 2: NSE India allIndices API (~1 min delay, real NSE data)
-   Priority 3: Yahoo Finance v7 quote
-   Priority 4: Yahoo Finance v8 chart
-   All sources tried via multiple CORS proxies simultaneously
+   Priority 1: Angel One WebSocket (exact live — when WS connected)
+   Priority 2: Angel One LTP REST via Google Apps Script proxy
+   Priority 3: NSE India allIndices API
+   Priority 4: Yahoo Finance v7 quote
 ================================================================ */
 async function fetchLivePrice() {
+  if(wsConnected) return price; // WebSocket is live — skip polling
+
+  const proxyUrl = AO.proxyUrl || localStorage.getItem('nst_proxy') || '';
+
+  // ---- Priority 2: Angel One LTP via Google Apps Script ----
+  if(proxyUrl && aoSession?.jwtToken) {
+    try {
+      const res = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ltp', jwtToken: aoSession.jwtToken }),
+        signal: AbortSignal.timeout(6000),
+      });
+      const data = await res.json();
+      const ltp = parseFloat(data?.data?.ltp);
+      if(ltp > 15000 && ltp < 45000) {
+        setLiveBadge('live');
+        updatePriceDisplay(ltp, D.prev_close, dayOpen, dayHigh, dayLow, '● Angel One LTP (live)');
+        triggerSignalUpdate();
+        return ltp;
+      }
+    } catch(e) {}
+  }
+
+  // ---- Priority 3: NSE India allIndices ----
+  const NSE = 'https://www.nseindia.com/api/allIndices';
+  const nseProxies = [
+    `https://corsproxy.io/?${encodeURIComponent(NSE)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(NSE)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(NSE)}`,
+  ];
+
+  function parseNSE(raw) {
+    let d; try { d=JSON.parse(raw); } catch(e) { try { const j=JSON.parse(raw); d=JSON.parse(j.contents||j.body||'null'); } catch(e2) { return null; } }
+    const n = d?.data?.find(x => x.indexSymbol==='NIFTY 50' || x.index==='NIFTY 50');
+    if(!n?.last || n.last < 15000) return null;
+    return { p:n.last, prev:n.previousClose||D.prev_close, open:n.open, high:n.high, low:n.low };
+  }
+
+  for(const url of nseProxies) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const result = parseNSE(await res.text());
+      if(result) {
+        if(result.prev>15000) D.prev_close=result.prev;
+        if(result.open>15000) dayOpen=result.open;
+        if(result.high>15000) dayHigh=dayHigh?Math.max(result.high,dayHigh):result.high;
+        if(result.low>1000)   dayLow=dayLow?Math.min(result.low,dayLow):result.low;
+        setLiveBadge('live');
+        updatePriceDisplay(result.p, D.prev_close, dayOpen, dayHigh, dayLow, '● NSE India (~1min)');
+        triggerSignalUpdate();
+        return result.p;
+      }
+    } catch(e) {}
+  }
+
+  // ---- Priority 4: Yahoo Finance v7 (most current Yahoo endpoint) ----
+  const YF_URLS = [
+    'https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI',
+    'https://query2.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI',
+  ];
+  const YF_PX = [
+    u => u,
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+  ];
+
+  function parseYF7(raw) {
+    let d; try { d=JSON.parse(raw); } catch(e) { try { const j=JSON.parse(raw); d=JSON.parse(j.contents||j.body||'null'); } catch(e2){ return null; } }
+    const q = d?.quoteResponse?.result?.[0];
+    const p = q?.regularMarketPrice;
+    if(!p||p<15000||p>45000) return null;
+    return { p, prev:q.regularMarketPreviousClose||D.prev_close, open:q.regularMarketOpen, high:q.regularMarketDayHigh, low:q.regularMarketDayLow };
+  }
+
+  const yAttempts = [];
+  for(const src of YF_URLS) for(const px of YF_PX)
+    yAttempts.push(fetch(px(src),{signal:AbortSignal.timeout(7000)}).then(r=>r.text()).then(raw=>{
+      const r=parseYF7(raw); if(!r) throw 0; return r;
+    }).catch(()=>{throw 0;}));
+
+  try {
+    const result = await Promise.any(yAttempts);
+    if(result.prev>15000) D.prev_close=result.prev;
+    if(result.open>15000) dayOpen=result.open;
+    if(result.high>15000) dayHigh=dayHigh?Math.max(result.high,dayHigh):result.high;
+    if(result.low>1000)   dayLow=dayLow?Math.min(result.low,dayLow):result.low;
+    setLiveBadge('delayed');
+    updatePriceDisplay(result.p, D.prev_close, dayOpen, dayHigh, dayLow, '◷ Yahoo Finance · Set up Google Proxy for live');
+    triggerSignalUpdate();
+    return result.p;
+  } catch(e) {
+    setLiveBadge('offline');
+    const el=document.getElementById('fetch-status');
+    if(el) el.textContent='All sources failed · Last: '+fmtPrice(lastGoodPrice);
+    return lastGoodPrice;
+  }
+}
   if(wsConnected) return price; // Angel One WS feeding live ticks — skip
 
   const PX = [
@@ -1346,6 +1514,9 @@ function startMainLoop() {
 // Clock ticks every second regardless of login state
 setInterval(()=>{ checkMarket(); }, 1000);
 load(); renderSR();
+// Load saved proxy URL
+const _savedProxy = localStorage.getItem('nst_proxy');
+if(_savedProxy) { AO.proxyUrl = _savedProxy; const el=document.getElementById('sproxy'); if(el) el.value=_savedProxy; }
 </script>
 </body>
 </html>
