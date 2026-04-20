@@ -1055,11 +1055,191 @@ function updatePriceDisplay(p, prev, open, high, low, src) {
 function skipLogin() {
   document.getElementById('loginScreen').style.display = 'none';
   startMainLoop();
-  fetchYahooFallback();
 }
 
-/* ---- Login screen ---- */
+/* ---- Angel One Login (tries 5 CORS proxies) ---- */
 async function doLogin() {
+  const pwd   = document.getElementById('lpwd').value.trim();
+  const totp  = document.getElementById('ltotp').value.trim();
+  const errEl = document.getElementById('lerr');
+  const btn   = document.getElementById('lbtn');
+  errEl.textContent = '';
+  if(!pwd)            { errEl.textContent = 'Enter your password'; return; }
+  if(totp.length < 6) { errEl.textContent = 'Enter 6-digit TOTP code'; return; }
+  btn.disabled = true; btn.textContent = 'Connecting...';
+
+  const body = JSON.stringify({ clientcode: AO.clientId, password: pwd, totp });
+  const hdrs = { 'Content-Type':'application/json','Accept':'application/json','X-APIKey':AO.apiKey,'X-SourceID':'WEB','X-ClientLocalIP':'192.168.1.1','X-ClientPublicIP':'49.47.140.217','X-MACAddress':'00-00-00-00-00-00','X-PrivateKey':AO.apiKey };
+
+  const proxies = [
+    u => u,
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    u => `https://thingproxy.freeboard.io/fetch/${u}`,
+  ];
+
+  for(let i=0; i<proxies.length; i++) {
+    try {
+      btn.textContent = 'Attempt '+(i+1)+'/5...';
+      const r = await fetch(proxies[i](AO.loginUrl), { method:'POST', headers:hdrs, body, signal:AbortSignal.timeout(8000) });
+      const raw = await r.text();
+      let data; try { data=JSON.parse(raw); } catch(e) { const j=JSON.parse(raw); data=JSON.parse(j.contents||j.body||'{}'); }
+      if(data.status && data.data?.jwtToken) {
+        aoSession = data.data;
+        document.getElementById('loginScreen').style.display = 'none';
+        setLiveBadge('live');
+        connectWebSocket();
+        startMainLoop();
+        return;
+      } else if(data.message && i===proxies.length-1) {
+        errEl.textContent = '✗ '+data.message;
+        btn.disabled=false; btn.textContent='Login & Start Live Feed'; return;
+      }
+    } catch(e) { continue; }
+  }
+  errEl.textContent = '⚠ Angel One blocked by browser. Tap Skip below.';
+  btn.disabled=false; btn.textContent='Login & Start Live Feed';
+}
+
+/* ---- Angel One WebSocket ---- */
+function connectWebSocket() {
+  if(!aoSession) return;
+  try { if(aoWs) aoWs.close(); } catch(e){}
+  aoWs = new WebSocket(AO.wsUrl);
+  aoWs.binaryType = 'arraybuffer';
+  aoWs.onopen = () => {
+    wsConnected=true; setLiveBadge('live');
+    aoWs.send(JSON.stringify({ correlationID:'n1', action:1, params:{ mode:1, tokenList:[{ exchangeType:1, tokens:[AO.niftyToken] }] } }));
+  };
+  aoWs.onmessage = (evt) => {
+    try {
+      if(typeof evt.data==='string') return;
+      const v=new DataView(evt.data);
+      if(evt.data.byteLength>=51) {
+        const ltp=Number(v.getBigInt64(43,false))/100;
+        if(ltp>15000&&ltp<40000) { setLiveBadge('live'); updatePriceDisplay(ltp,D.prev_close,dayOpen,dayHigh,dayLow,'● Angel One LIVE'); triggerSignalUpdate(); }
+      }
+    } catch(e){}
+  };
+  aoWs.onerror = ()=>{ wsConnected=false; };
+  aoWs.onclose = ()=>{ wsConnected=false; setTimeout(()=>{ if(aoSession) connectWebSocket(); },5000); };
+}
+
+/* ================================================================
+   LIVE PRICE ENGINE — Yahoo v7 quote (most current) + v8 fallback
+   Validates timestamp so stale/old data is rejected
+================================================================ */
+async function fetchLivePrice() {
+  if(wsConnected) return price; // WebSocket already updating
+
+  const now_ist = getIST();
+  const today_date = now_ist.getDate();
+
+  // v7 quote gives real-time price with timestamp
+  const V7_1 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI';
+  const V7_2 = 'https://query2.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI';
+  // v8 chart for today's OHLC
+  const V8_1 = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d&includePrePost=false';
+  const V8_2 = 'https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d&includePrePost=false';
+
+  const PX = [
+    u => u,
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+  ];
+
+  function safeParse(raw) {
+    try { return JSON.parse(raw); }
+    catch(e) { try { const j=JSON.parse(raw); return JSON.parse(j.contents||j.body||'{}'); } catch(e2) { return {}; } }
+  }
+
+  function parseV7(raw) {
+    const d = safeParse(raw);
+    const q = d.quoteResponse?.result?.[0];
+    if(!q?.regularMarketPrice || q.regularMarketPrice<15000) throw 0;
+    // Check timestamp is today
+    const ts_ist = new Date((q.regularMarketTime||0)*1000 + new Date().getTimezoneOffset()*60000 + 5.5*3600000);
+    if(ts_ist.getDate() !== today_date) throw new Error('stale');
+    return { p:q.regularMarketPrice, prev:q.regularMarketPreviousClose||D.prev_close,
+             open:q.regularMarketOpen, high:q.regularMarketDayHigh, low:q.regularMarketDayLow, src:'Yahoo Quote' };
+  }
+
+  function parseV8(raw) {
+    const d = safeParse(raw);
+    const m = d.chart?.result?.[0]?.meta;
+    if(!m?.regularMarketPrice || m.regularMarketPrice<15000) throw 0;
+    const ts_ist = new Date((m.regularMarketTime||0)*1000 + new Date().getTimezoneOffset()*60000 + 5.5*3600000);
+    if(ts_ist.getDate() !== today_date) throw new Error('stale');
+    return { p:m.regularMarketPrice, prev:m.previousClose||m.chartPreviousClose||D.prev_close,
+             open:m.regularMarketOpen, high:m.regularMarketDayHigh, low:m.regularMarketDayLow, src:'Yahoo Chart' };
+  }
+
+  const attempts = [];
+  for(const src of [V7_1,V7_2]) for(const px of PX)
+    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(7000)}).then(r=>r.text()).then(parseV7));
+  for(const src of [V8_1,V8_2]) for(const px of PX)
+    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(7000)}).then(r=>r.text()).then(parseV8));
+
+  try {
+    const result = await Promise.any(attempts);
+    if(result.prev>15000) D.prev_close = result.prev;
+    dayOpen = result.open||dayOpen;
+    if(result.high) dayHigh = dayHigh ? Math.max(result.high,dayHigh) : result.high;
+    if(result.low)  dayLow  = dayLow  ? Math.min(result.low, dayLow)  : result.low;
+    setLiveBadge('live');
+    updatePriceDisplay(result.p, D.prev_close, dayOpen, dayHigh, dayLow, '● '+result.src+' TODAY');
+    triggerSignalUpdate();
+    return result.p;
+  } catch(e) {
+    // All returned stale or failed
+    setLiveBadge('offline');
+    const el=document.getElementById('fetch-status');
+    if(el) el.textContent='Market may be closed · Last: '+fmtPrice(lastGoodPrice)+' · Refresh at 9:15 AM';
+    return lastGoodPrice;
+  }
+}
+
+/* ---- Signal trigger ---- */
+let lastSigTime = 0;
+function triggerSignalUpdate() {
+  const now = Date.now();
+  if(now-lastSigTime < 3000) return;
+  lastSigTime = now;
+  const mkt = checkMarket();
+  if(mkt.open || tick===0) {
+    const sig = genSignal(price);
+    if(sig.conf >= C.minConf) renderSig(sig);
+    renderTF(price);
+  }
+  renderSR();
+}
+
+/* ---- Main loop (called after login or skip) ---- */
+function startMainLoop() {
+  load(); renderSR(); renderOI(); renderPlan(); renderLog(); updateStats();
+  function poll() {
+    tick++;
+    checkMarket();
+    const mkt = checkMarket();
+    const pcr=(0.95+Math.random()*0.55).toFixed(2);
+    const pe=document.getElementById('spcr'); if(pe){pe.textContent=pcr;pe.style.color=pcr>1?'var(--green)':'var(--red)';}
+    document.getElementById('svix').textContent=(D.vix+(Math.random()-0.5)*0.4).toFixed(1);
+    document.getElementById('sdte').textContent=calcDTE();
+    fetchLivePrice();
+    if(tick%4===0||tick===1) renderOI();
+    fetchTimer = setTimeout(poll, mkt.open ? 5000 : 30000);
+  }
+  poll(); initCharts();
+}
+
+// Clock ticks every second regardless of login state
+setInterval(()=>{ checkMarket(); }, 1000);
+load(); renderSR();
+</script>
+</body>
+</html>
   const pwd  = document.getElementById('lpwd').value.trim();
   const totp = document.getElementById('ltotp').value.trim();
   const errEl = document.getElementById('lerr');
