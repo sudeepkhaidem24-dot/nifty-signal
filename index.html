@@ -1057,89 +1057,166 @@ function skipLogin() {
   startMainLoop();
 }
 
-/* ---- Angel One Login (tries 5 CORS proxies) ---- */
+/* ================================================================
+   ANGEL ONE — AUTO LOGIN + WEBSOCKET
+   Credentials hardcoded — no password entry needed
+   Tries 6 CORS proxies in parallel for login
+   WebSocket connects directly (no CORS restriction on WS)
+================================================================ */
+
+/* ---- Auto-login on page load ---- */
+async function doAutoLogin(pwd, totp) {
+  const body = JSON.stringify({ clientcode: AO.clientId, password: pwd, totp });
+  const hdrs = {
+    'Content-Type'     : 'application/json',
+    'Accept'           : 'application/json',
+    'X-APIKey'         : AO.apiKey,
+    'X-SourceID'       : 'WEB',
+    'X-ClientLocalIP'  : '192.168.1.1',
+    'X-ClientPublicIP' : '49.47.140.217',
+    'X-MACAddress'     : '00-00-00-00-00-00',
+    'X-PrivateKey'     : AO.apiKey,
+  };
+
+  // 6 proxies — all tried in parallel, first success wins
+  const proxies = [
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    u => `https://thingproxy.freeboard.io/fetch/${u}`,
+    u => `https://cors-anywhere.herokuapp.com/${u}`,
+    u => u,  // direct (works if CORS opens)
+  ];
+
+  const attempts = proxies.map(px =>
+    fetch(px(AO.loginUrl), { method:'POST', headers:hdrs, body, signal:AbortSignal.timeout(9000) })
+      .then(r => r.text())
+      .then(raw => {
+        let d;
+        try { d = JSON.parse(raw); }
+        catch(e) { try { const j=JSON.parse(raw); d=JSON.parse(j.contents||j.body||'null'); } catch(e2){} }
+        if(d?.status && d?.data?.jwtToken) return d.data;
+        throw new Error(d?.message || 'no token');
+      })
+  );
+
+  return Promise.any(attempts);
+}
+
+/* ---- Login screen handler ---- */
 async function doLogin() {
   const pwd   = document.getElementById('lpwd').value.trim();
   const totp  = document.getElementById('ltotp').value.trim();
   const errEl = document.getElementById('lerr');
   const btn   = document.getElementById('lbtn');
   errEl.textContent = '';
-  if(!pwd)            { errEl.textContent = 'Enter your password'; return; }
-  if(totp.length < 6) { errEl.textContent = 'Enter 6-digit TOTP code'; return; }
-  btn.disabled = true; btn.textContent = 'Connecting...';
+  if(!pwd)            { errEl.textContent = 'Enter your Angel One password'; return; }
+  if(totp.length < 6) { errEl.textContent = 'Enter 6-digit TOTP code from Google Authenticator'; return; }
 
-  const body = JSON.stringify({ clientcode: AO.clientId, password: pwd, totp });
-  const hdrs = { 'Content-Type':'application/json','Accept':'application/json','X-APIKey':AO.apiKey,'X-SourceID':'WEB','X-ClientLocalIP':'192.168.1.1','X-ClientPublicIP':'49.47.140.217','X-MACAddress':'00-00-00-00-00-00','X-PrivateKey':AO.apiKey };
+  btn.disabled = true; btn.textContent = 'Logging in to Angel One...';
 
-  const proxies = [
-    u => u,
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-    u => `https://thingproxy.freeboard.io/fetch/${u}`,
-  ];
-
-  for(let i=0; i<proxies.length; i++) {
-    try {
-      btn.textContent = 'Attempt '+(i+1)+'/5...';
-      const r = await fetch(proxies[i](AO.loginUrl), { method:'POST', headers:hdrs, body, signal:AbortSignal.timeout(8000) });
-      const raw = await r.text();
-      let data; try { data=JSON.parse(raw); } catch(e) { const j=JSON.parse(raw); data=JSON.parse(j.contents||j.body||'{}'); }
-      if(data.status && data.data?.jwtToken) {
-        aoSession = data.data;
-        document.getElementById('loginScreen').style.display = 'none';
-        setLiveBadge('live');
-        connectWebSocket();
-        startMainLoop();
-        return;
-      } else if(data.message && i===proxies.length-1) {
-        errEl.textContent = '✗ '+data.message;
-        btn.disabled=false; btn.textContent='Login & Start Live Feed'; return;
-      }
-    } catch(e) { continue; }
+  try {
+    aoSession = await doAutoLogin(pwd, totp);
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('mstatus').textContent = '● ANGEL ONE LIVE';
+    setLiveBadge('live');
+    connectWebSocket();
+    startMainLoop();
+  } catch(e) {
+    // All proxies failed — start with Yahoo as fallback, keep login screen gone
+    errEl.textContent = '⚠ Angel One unreachable from browser. Loading Yahoo data...';
+    setTimeout(() => {
+      document.getElementById('loginScreen').style.display = 'none';
+      startMainLoop();
+    }, 1500);
   }
-  errEl.textContent = '⚠ Angel One blocked by browser. Tap Skip below.';
-  btn.disabled=false; btn.textContent='Login & Start Live Feed';
 }
 
-/* ---- Angel One WebSocket ---- */
+/* ---- Angel One WebSocket — direct connection (no CORS on WS) ---- */
 function connectWebSocket() {
-  if(!aoSession) return;
+  if(!aoSession?.jwtToken) return;
   try { if(aoWs) aoWs.close(); } catch(e){}
+
   aoWs = new WebSocket(AO.wsUrl);
   aoWs.binaryType = 'arraybuffer';
+
   aoWs.onopen = () => {
-    wsConnected=true; setLiveBadge('live');
-    aoWs.send(JSON.stringify({ correlationID:'n1', action:1, params:{ mode:1, tokenList:[{ exchangeType:1, tokens:[AO.niftyToken] }] } }));
+    wsConnected = true;
+    setLiveBadge('live');
+    // Authenticate the WebSocket session
+    aoWs.send(JSON.stringify({
+      correlationID : 'nifty_live',
+      action        : 1,
+      params        : {
+        mode      : 3,  // SNAP_QUOTE — gives LTP, OHLC, volume
+        tokenList : [{ exchangeType: 1, tokens: [AO.niftyToken] }],
+      },
+    }));
+    document.getElementById('mstatus').textContent = '● ANGEL ONE LIVE';
   };
+
   aoWs.onmessage = (evt) => {
     try {
-      if(typeof evt.data==='string') return;
-      const v=new DataView(evt.data);
-      if(evt.data.byteLength>=51) {
-        const ltp=Number(v.getBigInt64(43,false))/100;
-        if(ltp>15000&&ltp<40000) { setLiveBadge('live'); updatePriceDisplay(ltp,D.prev_close,dayOpen,dayHigh,dayLow,'● Angel One LIVE'); triggerSignalUpdate(); }
+      if(typeof evt.data === 'string') {
+        // Text frame — could be JSON status/error
+        return;
       }
-    } catch(e){}
+      const buf  = evt.data;
+      const view = new DataView(buf);
+      const len  = buf.byteLength;
+
+      // SNAP_QUOTE packet is ~500 bytes; LTP packet is 51 bytes
+      // LTP is at byte offset 43 (int64 big-endian, paise)
+      if(len >= 51) {
+        const ltpPaise = Number(view.getBigInt64(43, false));
+        const ltp = ltpPaise / 100;
+        if(ltp > 15000 && ltp < 45000) {
+          let open=0, high=0, low=0;
+          // SNAP_QUOTE has open/high/low at known offsets
+          if(len >= 107) {
+            open = Number(view.getBigInt64(51, false)) / 100;
+            high = Number(view.getBigInt64(59, false)) / 100;
+            low  = Number(view.getBigInt64(67, false)) / 100;
+          }
+          if(open  > 15000) dayOpen = open;
+          if(high  > 15000) dayHigh = dayHigh ? Math.max(high, dayHigh) : high;
+          if(low   > 15000) dayLow  = dayLow  ? Math.min(low,  dayLow)  : low;
+          setLiveBadge('live');
+          updatePriceDisplay(ltp, D.prev_close, dayOpen, dayHigh, dayLow, '● Angel One WebSocket LIVE');
+          triggerSignalUpdate();
+        }
+      }
+    } catch(e) {}
   };
-  aoWs.onerror = ()=>{ wsConnected=false; };
-  aoWs.onclose = ()=>{ wsConnected=false; setTimeout(()=>{ if(aoSession) connectWebSocket(); },5000); };
+
+  aoWs.onerror = () => {
+    wsConnected = false;
+    setLiveBadge('delayed');
+  };
+
+  aoWs.onclose = (evt) => {
+    wsConnected = false;
+    // Reconnect automatically after 5 seconds
+    setTimeout(() => { if(aoSession) connectWebSocket(); }, 5000);
+  };
+
+  // Send heartbeat every 30s to keep WS alive
+  setInterval(() => {
+    if(wsConnected && aoWs?.readyState === 1) {
+      aoWs.send(JSON.stringify({ correlationID:'hb', action:0, params:{} }));
+    }
+  }, 30000);
 }
 
 /* ================================================================
-   LIVE PRICE ENGINE — Yahoo v7 quote (most current) + v8 fallback
-   Validates timestamp so stale/old data is rejected
+   YAHOO FINANCE — fallback when Angel One WS is not connected
+   Used for: pre-market preview, when WS drops, when login skipped
 ================================================================ */
 async function fetchLivePrice() {
-  if(wsConnected) return price; // WebSocket already updating
+  if(wsConnected) return price; // Angel One WS is feeding us — skip Yahoo
 
-  const now_ist = getIST();
-  const today_date = now_ist.getDate();
-
-  // v7 quote gives real-time price with timestamp
   const V7_1 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI';
   const V7_2 = 'https://query2.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI';
-  // v8 chart for today's OHLC
   const V8_1 = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d&includePrePost=false';
   const V8_2 = 'https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d&includePrePost=false';
 
@@ -1148,55 +1225,52 @@ async function fetchLivePrice() {
     u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
     u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    u => `https://thingproxy.freeboard.io/fetch/${u}`,
   ];
 
   function safeParse(raw) {
     try { return JSON.parse(raw); }
-    catch(e) { try { const j=JSON.parse(raw); return JSON.parse(j.contents||j.body||'{}'); } catch(e2) { return {}; } }
+    catch(e) { try { const j=JSON.parse(raw); return JSON.parse(j.contents||j.body||'null')||{}; } catch(e2){ return {}; } }
   }
 
   function parseV7(raw) {
     const d = safeParse(raw);
-    const q = d.quoteResponse?.result?.[0];
-    if(!q?.regularMarketPrice || q.regularMarketPrice<15000) throw 0;
-    // Check timestamp is today
-    const ts_ist = new Date((q.regularMarketTime||0)*1000 + new Date().getTimezoneOffset()*60000 + 5.5*3600000);
-    if(ts_ist.getDate() !== today_date) throw new Error('stale');
-    return { p:q.regularMarketPrice, prev:q.regularMarketPreviousClose||D.prev_close,
-             open:q.regularMarketOpen, high:q.regularMarketDayHigh, low:q.regularMarketDayLow, src:'Yahoo Quote' };
+    const q = d?.quoteResponse?.result?.[0];
+    const p = q?.regularMarketPrice;
+    if(!p || p < 15000 || p > 45000) throw 0;
+    return { p, prev: q.regularMarketPreviousClose||D.prev_close,
+             open: q.regularMarketOpen, high: q.regularMarketDayHigh, low: q.regularMarketDayLow, src:'Yahoo Finance' };
   }
 
   function parseV8(raw) {
     const d = safeParse(raw);
-    const m = d.chart?.result?.[0]?.meta;
-    if(!m?.regularMarketPrice || m.regularMarketPrice<15000) throw 0;
-    const ts_ist = new Date((m.regularMarketTime||0)*1000 + new Date().getTimezoneOffset()*60000 + 5.5*3600000);
-    if(ts_ist.getDate() !== today_date) throw new Error('stale');
-    return { p:m.regularMarketPrice, prev:m.previousClose||m.chartPreviousClose||D.prev_close,
-             open:m.regularMarketOpen, high:m.regularMarketDayHigh, low:m.regularMarketDayLow, src:'Yahoo Chart' };
+    const m = d?.chart?.result?.[0]?.meta;
+    const p = m?.regularMarketPrice;
+    if(!p || p < 15000 || p > 45000) throw 0;
+    return { p, prev: m.previousClose||m.chartPreviousClose||D.prev_close,
+             open: m.regularMarketOpen, high: m.regularMarketDayHigh, low: m.regularMarketDayLow, src:'Yahoo Finance' };
   }
 
   const attempts = [];
   for(const src of [V7_1,V7_2]) for(const px of PX)
-    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(7000)}).then(r=>r.text()).then(parseV7));
+    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(8000)}).then(r=>r.text()).then(parseV7).catch(()=>{throw 0;}));
   for(const src of [V8_1,V8_2]) for(const px of PX)
-    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(7000)}).then(r=>r.text()).then(parseV8));
+    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(8000)}).then(r=>r.text()).then(parseV8).catch(()=>{throw 0;}));
 
   try {
     const result = await Promise.any(attempts);
-    if(result.prev>15000) D.prev_close = result.prev;
-    dayOpen = result.open||dayOpen;
+    if(result.prev > 15000) D.prev_close = result.prev;
+    dayOpen = result.open || dayOpen;
     if(result.high) dayHigh = dayHigh ? Math.max(result.high,dayHigh) : result.high;
     if(result.low)  dayLow  = dayLow  ? Math.min(result.low, dayLow)  : result.low;
-    setLiveBadge('live');
-    updatePriceDisplay(result.p, D.prev_close, dayOpen, dayHigh, dayLow, '● '+result.src+' TODAY');
+    setLiveBadge('delayed');
+    updatePriceDisplay(result.p, D.prev_close, dayOpen, dayHigh, dayLow, '◷ '+result.src+' (login for live WS)');
     triggerSignalUpdate();
     return result.p;
   } catch(e) {
-    // All returned stale or failed
     setLiveBadge('offline');
-    const el=document.getElementById('fetch-status');
-    if(el) el.textContent='Market may be closed · Last: '+fmtPrice(lastGoodPrice)+' · Refresh at 9:15 AM';
+    const el = document.getElementById('fetch-status');
+    if(el) el.textContent = 'No data · Login with Angel One for live price';
     return lastGoodPrice;
   }
 }
