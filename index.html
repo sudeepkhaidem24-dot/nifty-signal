@@ -185,8 +185,8 @@ html,body{background:var(--bg);color:var(--t1);font-family:var(--sans);min-heigh
     <label class="llbl">Angel One Password</label>
     <input class="linp" type="password" id="lpwd" placeholder="Enter your password" autocomplete="current-password">
 
-    <label class="llbl">TOTP (Google Authenticator 6-digit code)</label>
-    <input class="linp" type="number" id="ltotp" placeholder="000000" maxlength="6" autocomplete="one-time-code">
+    <label class="llbl">TOTP Code <span style="color:var(--green);font-size:10px" id="totp-cd">Auto-generating...</span></label>
+    <input class="linp" type="number" id="ltotp" placeholder="Auto-generating..." style="color:var(--green);letter-spacing:.2em" autocomplete="one-time-code">
 
     <button class="lbtn" id="lbtn" onclick="doLogin()">Login &amp; Start Live Feed</button>
     <button onclick="skipLogin()" style="width:100%;padding:11px;border-radius:10px;background:transparent;border:1px solid var(--bdr2);color:var(--t2);font-size:13px;cursor:pointer;font-family:var(--sans);margin-top:10px">Skip — Use Yahoo Finance (delayed)</button>
@@ -1069,7 +1069,59 @@ function updatePriceDisplay(p, prev, open, high, low, src) {
   if(el('fetch-status')) el('fetch-status').textContent = src+' · '+ts+' IST';
 }
 
-function skipLogin() {
+/* ================================================================
+   AUTO-TOTP GENERATOR — uses your Angel One TOTP secret
+   Generates the 6-digit code in the browser automatically
+   No need to open Google Authenticator
+================================================================ */
+const TOTP_SECRET = 'QHSCQCN4PNBASGJ6GOPBNNU6QE';
+
+async function generateTOTP() {
+  try {
+    // Base32 decode
+    const b32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bits = '';
+    for(const c of TOTP_SECRET.toUpperCase().replace(/\s|=+$/g,'')) {
+      const v = b32.indexOf(c); if(v<0) continue;
+      bits += v.toString(2).padStart(5,'0');
+    }
+    const bytes = [];
+    for(let i=0; i+8<=bits.length; i+=8) bytes.push(parseInt(bits.slice(i,i+8),2));
+
+    // HMAC-SHA1 with time counter (30s window)
+    const counter = Math.floor(Date.now()/1000/30);
+    const cb = new Uint8Array(8);
+    let c = counter;
+    for(let i=7;i>=0;i--){ cb[i]=c&0xff; c=Math.floor(c/256); }
+
+    const key = await crypto.subtle.importKey('raw', new Uint8Array(bytes),
+      {name:'HMAC',hash:'SHA-1'}, false, ['sign']);
+    const sig  = new Uint8Array(await crypto.subtle.sign('HMAC', key, cb));
+    const off  = sig[19]&0xf;
+    const code = ((sig[off]&0x7f)<<24|sig[off+1]<<16|sig[off+2]<<8|sig[off+3])%1000000;
+    return code.toString().padStart(6,'0');
+  } catch(e) { return ''; }
+}
+
+// Auto-fill TOTP field and show countdown
+let totpInterval = null;
+async function startTotpAutoFill() {
+  async function fill() {
+    const code = await generateTOTP();
+    const inp  = document.getElementById('ltotp');
+    const cdEl = document.getElementById('totp-cd');
+    if(inp && code) {
+      inp.value = code;
+      inp.style.color = 'var(--green)';
+    }
+    // Countdown to next refresh
+    const secsLeft = 30 - (Math.floor(Date.now()/1000) % 30);
+    if(cdEl) cdEl.textContent = 'Auto-refreshes in '+secsLeft+'s';
+    if(secsLeft <= 2) setTimeout(fill, 2000); // refresh near boundary
+  }
+  fill();
+  totpInterval = setInterval(fill, 1000);
+}
   document.getElementById('loginScreen').style.display = 'none';
   startMainLoop();
 }
@@ -1117,23 +1169,31 @@ async function doAutoLogin(pwd, totp) {
 
 async function doLogin() {
   const pwd   = document.getElementById('lpwd').value.trim();
-  const totp  = document.getElementById('ltotp').value.trim();
+  let   totp  = document.getElementById('ltotp').value.trim();
   const errEl = document.getElementById('lerr');
   const btn   = document.getElementById('lbtn');
   errEl.textContent = '';
-  if(!pwd)            { errEl.textContent = 'Enter your Angel One password'; return; }
-  if(totp.length < 6) { errEl.textContent = 'Enter 6-digit TOTP from Google Authenticator'; return; }
-  btn.disabled = true; btn.textContent = 'Logging in...';
+  if(!pwd) { errEl.textContent = 'Enter your Angel One password'; return; }
+  // Auto-generate TOTP if not already filled
+  if(totp.length < 6) { totp = await generateTOTP(); }
+  if(totp.length < 6) { errEl.textContent = 'Could not generate TOTP'; return; }
+  btn.disabled = true; btn.textContent = 'Logging in via Google Proxy...';
   try {
     aoSession = await doAutoLogin(pwd, totp);
+    if(totpInterval) clearInterval(totpInterval);
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('mstatus').textContent = '● ANGEL ONE LIVE';
     setLiveBadge('live');
     connectWebSocket();
     startMainLoop();
   } catch(e) {
-    errEl.textContent = '⚠ '+( e.message.includes('proxy')?'Login failed. Check password/TOTP.':'Browser blocked Angel One. Set up Google Proxy in Settings.');
-    btn.disabled = false; btn.textContent = 'Login & Start Live Feed';
+    const msg = e.message||'';
+    if(msg.includes('Invalid')) errEl.textContent = '✗ Wrong password or IP not whitelisted. Clear Primary Static IP in SmartAPI settings.';
+    else errEl.textContent = '⚠ '+msg.slice(0,80);
+    btn.disabled=false; btn.textContent='Login & Start Live Feed';
+    // Refresh TOTP for retry
+    const fresh = await generateTOTP();
+    document.getElementById('ltotp').value = fresh;
   }
 }
   const body = JSON.stringify({ clientcode: AO.clientId, password: pwd, totp });
@@ -1517,6 +1577,8 @@ load(); renderSR();
 // Load saved proxy URL
 const _savedProxy = localStorage.getItem('nst_proxy');
 if(_savedProxy) { AO.proxyUrl = _savedProxy; const el=document.getElementById('sproxy'); if(el) el.value=_savedProxy; }
+// Start auto-TOTP generation immediately
+startTotpAutoFill();
 </script>
 </body>
 </html>
