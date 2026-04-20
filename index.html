@@ -1209,16 +1209,15 @@ function connectWebSocket() {
 }
 
 /* ================================================================
-   YAHOO FINANCE — fallback when Angel One WS is not connected
-   Used for: pre-market preview, when WS drops, when login skipped
+   LIVE PRICE ENGINE
+   Priority 1: Angel One WebSocket (exact live — when logged in)
+   Priority 2: NSE India allIndices API (~1 min delay, real NSE data)
+   Priority 3: Yahoo Finance v7 quote
+   Priority 4: Yahoo Finance v8 chart
+   All sources tried via multiple CORS proxies simultaneously
 ================================================================ */
 async function fetchLivePrice() {
-  if(wsConnected) return price; // Angel One WS is feeding us — skip Yahoo
-
-  const V7_1 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI';
-  const V7_2 = 'https://query2.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI';
-  const V8_1 = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d&includePrePost=false';
-  const V8_2 = 'https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d&includePrePost=false';
+  if(wsConnected) return price; // Angel One WS feeding live ticks — skip
 
   const PX = [
     u => u,
@@ -1228,49 +1227,85 @@ async function fetchLivePrice() {
     u => `https://thingproxy.freeboard.io/fetch/${u}`,
   ];
 
-  function safeParse(raw) {
+  function sp(raw) {
     try { return JSON.parse(raw); }
-    catch(e) { try { const j=JSON.parse(raw); return JSON.parse(j.contents||j.body||'null')||{}; } catch(e2){ return {}; } }
+    catch(e) { try { const j=JSON.parse(raw); return JSON.parse(j.contents||j.body||'null')||{}; } catch(e2){ return null; } }
   }
 
+  // ---- NSE India allIndices — real NSE data, ~1 min delay ----
+  const NSE_URL = 'https://www.nseindia.com/api/allIndices';
+  function parseNSE(raw) {
+    const d = sp(raw);
+    if(!d?.data) throw 0;
+    const nifty = d.data.find(x => x.indexSymbol === 'NIFTY 50' || x.index === 'NIFTY 50');
+    if(!nifty?.last || nifty.last < 15000) throw 0;
+    return {
+      p    : nifty.last,
+      prev : nifty.previousClose || D.prev_close,
+      open : nifty.open,
+      high : nifty.high,
+      low  : nifty.low,
+      src  : 'NSE India (~1min)',
+      badge: 'live'
+    };
+  }
+
+  // ---- Yahoo Finance v7 quote ----
+  const YFQ1 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI';
+  const YFQ2 = 'https://query2.finance.yahoo.com/v7/finance/quote?symbols=%5ENSEI';
   function parseV7(raw) {
-    const d = safeParse(raw);
+    const d = sp(raw);
     const q = d?.quoteResponse?.result?.[0];
     const p = q?.regularMarketPrice;
     if(!p || p < 15000 || p > 45000) throw 0;
     return { p, prev: q.regularMarketPreviousClose||D.prev_close,
-             open: q.regularMarketOpen, high: q.regularMarketDayHigh, low: q.regularMarketDayLow, src:'Yahoo Finance' };
+             open: q.regularMarketOpen, high: q.regularMarketDayHigh, low: q.regularMarketDayLow,
+             src: 'Yahoo Finance', badge: 'delayed' };
   }
 
+  // ---- Yahoo Finance v8 chart ----
+  const YFC1 = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d';
+  const YFC2 = 'https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d';
   function parseV8(raw) {
-    const d = safeParse(raw);
+    const d = sp(raw);
     const m = d?.chart?.result?.[0]?.meta;
     const p = m?.regularMarketPrice;
     if(!p || p < 15000 || p > 45000) throw 0;
     return { p, prev: m.previousClose||m.chartPreviousClose||D.prev_close,
-             open: m.regularMarketOpen, high: m.regularMarketDayHigh, low: m.regularMarketDayLow, src:'Yahoo Finance' };
+             open: m.regularMarketOpen, high: m.regularMarketDayHigh, low: m.regularMarketDayLow,
+             src: 'Yahoo Finance', badge: 'delayed' };
   }
 
+  // Fire all sources simultaneously — fastest valid response wins
   const attempts = [];
-  for(const src of [V7_1,V7_2]) for(const px of PX)
-    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(8000)}).then(r=>r.text()).then(parseV7).catch(()=>{throw 0;}));
-  for(const src of [V8_1,V8_2]) for(const px of PX)
-    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(8000)}).then(r=>r.text()).then(parseV8).catch(()=>{throw 0;}));
+
+  // NSE India via proxies (skip direct — NSE blocks direct browser access)
+  for(const px of PX.slice(1))
+    attempts.push(fetch(px(NSE_URL),{signal:AbortSignal.timeout(8000)}).then(r=>r.text()).then(parseNSE).catch(()=>{throw 0;}));
+
+  // Yahoo v7 (direct often works + proxies)
+  for(const src of [YFQ1,YFQ2]) for(const px of PX)
+    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(7000)}).then(r=>r.text()).then(parseV7).catch(()=>{throw 0;}));
+
+  // Yahoo v8 (backup)
+  for(const src of [YFC1,YFC2]) for(const px of PX.slice(0,3))
+    attempts.push(fetch(px(src),{signal:AbortSignal.timeout(7000)}).then(r=>r.text()).then(parseV8).catch(()=>{throw 0;}));
 
   try {
     const result = await Promise.any(attempts);
     if(result.prev > 15000) D.prev_close = result.prev;
-    dayOpen = result.open || dayOpen;
-    if(result.high) dayHigh = dayHigh ? Math.max(result.high,dayHigh) : result.high;
-    if(result.low)  dayLow  = dayLow  ? Math.min(result.low, dayLow)  : result.low;
-    setLiveBadge('delayed');
-    updatePriceDisplay(result.p, D.prev_close, dayOpen, dayHigh, dayLow, '◷ '+result.src+' (login for live WS)');
+    if(result.open > 15000) dayOpen = result.open;
+    if(result.high > 15000) dayHigh = dayHigh ? Math.max(result.high,dayHigh) : result.high;
+    if(result.low  > 1000)  dayLow  = dayLow  ? Math.min(result.low, dayLow)  : result.low;
+    setLiveBadge(result.badge);
+    const lbl = (result.badge==='live'?'●':'◷')+' '+result.src;
+    updatePriceDisplay(result.p, D.prev_close, dayOpen, dayHigh, dayLow, lbl);
     triggerSignalUpdate();
     return result.p;
   } catch(e) {
     setLiveBadge('offline');
     const el = document.getElementById('fetch-status');
-    if(el) el.textContent = 'No data · Login with Angel One for live price';
+    if(el) el.textContent = 'No source responded · Last: '+fmtPrice(lastGoodPrice)+' · Retrying...';
     return lastGoodPrice;
   }
 }
@@ -1303,7 +1338,7 @@ function startMainLoop() {
     document.getElementById('sdte').textContent=calcDTE();
     fetchLivePrice();
     if(tick%4===0||tick===1) renderOI();
-    fetchTimer = setTimeout(poll, mkt.open ? 5000 : 30000);
+    fetchTimer = setTimeout(poll, mkt.open ? 3000 : 30000);
   }
   poll(); initCharts();
 }
@@ -1311,203 +1346,6 @@ function startMainLoop() {
 // Clock ticks every second regardless of login state
 setInterval(()=>{ checkMarket(); }, 1000);
 load(); renderSR();
-</script>
-</body>
-</html>
-  const pwd  = document.getElementById('lpwd').value.trim();
-  const totp = document.getElementById('ltotp').value.trim();
-  const errEl = document.getElementById('lerr');
-  const btn   = document.getElementById('lbtn');
-
-  errEl.textContent = '';
-  if(!pwd)  { errEl.textContent = 'Enter your password'; return; }
-  if(!totp || totp.length < 6) { errEl.textContent = 'Enter 6-digit TOTP code'; return; }
-
-  btn.disabled = true;
-  btn.textContent = 'Connecting to Angel One...';
-
-  try {
-    const res = await fetch(AO.loginUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type'     : 'application/json',
-        'Accept'           : 'application/json',
-        'X-APIKey'         : AO.apiKey,
-        'X-SourceID'       : 'WEB',
-        'X-ClientLocalIP'  : '192.168.1.1',
-        'X-ClientPublicIP' : '49.47.140.217',
-        'X-MACAddress'     : '00-00-00-00-00-00',
-        'X-PrivateKey'     : AO.apiKey,
-      },
-      body: JSON.stringify({ clientcode: AO.clientId, password: pwd, totp: totp }),
-    });
-
-    const data = await res.json();
-
-    if(data.status && data.data && data.data.jwtToken) {
-      aoSession = data.data;
-      document.getElementById('loginScreen').style.display = 'none';
-      document.getElementById('mstatus').textContent = '● ANGEL ONE CONNECTED';
-      connectWebSocket();
-      startMainLoop();
-    } else {
-      const msg = data.message || data.errorMessage || 'Login failed';
-      errEl.textContent = '✗ ' + msg;
-      btn.disabled = false;
-      btn.textContent = 'Login & Start Live Feed';
-    }
-  } catch(e) {
-    // CORS or network error — try Yahoo Finance fallback
-    errEl.textContent = '⚠ Angel One CORS blocked. Switching to Yahoo Finance...';
-    setTimeout(() => {
-      document.getElementById('loginScreen').style.display = 'none';
-      startMainLoop();
-      fetchYahooFallback();
-    }, 2000);
-  }
-}
-
-/* ---- Angel One WebSocket ---- */
-function connectWebSocket() {
-  if(!aoSession) return;
-  if(aoWs) { try { aoWs.close(); } catch(e){} }
-
-  aoWs = new WebSocket(AO.wsUrl);
-  aoWs.binaryType = 'arraybuffer';
-
-  aoWs.onopen = () => {
-    wsConnected = true;
-    setLiveBadge('live');
-    // Auth handshake
-    aoWs.send(JSON.stringify({
-      correlationID: 'nifty_signal',
-      action: 1,
-      params: {
-        mode: 1,   // LTP only (51 bytes, lightest)
-        tokenList: [{ exchangeType: 1, tokens: [AO.niftyToken] }]
-      }
-    }));
-  };
-
-  aoWs.onmessage = (evt) => {
-    try {
-      if(typeof evt.data === 'string') return; // skip text frames
-      const buf  = evt.data;
-      const view = new DataView(buf);
-      // LTP mode packet: 51 bytes
-      // Offset 44: last traded price (int64 big-endian, paise → divide by 100)
-      if(buf.byteLength >= 51) {
-        const ltpPaise = Number(view.getBigInt64(43, false));
-        const ltp = ltpPaise / 100;
-        if(ltp > 15000 && ltp < 40000) {
-          isLive = true;
-          setLiveBadge('live');
-          updatePriceDisplay(ltp, D.prev_close, dayOpen, dayHigh, dayLow, 'Angel One WebSocket');
-          triggerSignalUpdate();
-        }
-      }
-    } catch(e) {}
-  };
-
-  aoWs.onerror = () => { wsConnected = false; setLiveBadge('delayed'); fetchYahooFallback(); };
-  aoWs.onclose = () => {
-    wsConnected = false;
-    setLiveBadge('delayed');
-    // Reconnect after 5s
-    setTimeout(() => { if(aoSession) connectWebSocket(); }, 5000);
-  };
-}
-
-/* ---- Yahoo Finance fallback (when WS unavailable) ---- */
-async function fetchYahooFallback() {
-  const urls = [
-    'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d',
-    'https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d',
-  ];
-  const proxies = [
-    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-  ];
-
-  const attempts = [];
-  for(const u of urls) {
-    attempts.push(fetch(u, {signal:AbortSignal.timeout(5000)}).then(r=>r.json()));
-    for(const px of proxies) {
-      attempts.push(fetch(px(u),{signal:AbortSignal.timeout(7000)})
-        .then(r=>r.text()).then(t=>{
-          try{ return JSON.parse(t); }
-          catch(e){ const j=JSON.parse(t); return JSON.parse(j.contents||j.body||'{}'); }
-        }));
-    }
-  }
-
-  try {
-    const data = await Promise.any(attempts.map(p => p.then(d => {
-      const m = d.chart.result[0].meta;
-      if(!m.regularMarketPrice || m.regularMarketPrice < 15000) throw 0;
-      return m;
-    })));
-    setLiveBadge('delayed');
-    updatePriceDisplay(
-      data.regularMarketPrice,
-      data.previousClose || data.chartPreviousClose || D.prev_close,
-      data.regularMarketOpen, data.regularMarketDayHigh, data.regularMarketDayLow,
-      'Yahoo Finance (15min delay)'
-    );
-    triggerSignalUpdate();
-  } catch(e) {
-    setLiveBadge('offline');
-    const el = document.getElementById('fetch-status');
-    if(el) el.textContent = 'All sources offline · Last known: '+fmtPrice(lastGoodPrice);
-  }
-}
-
-/* ---- Signal trigger (called on every price update) ---- */
-let lastSigTime = 0;
-function triggerSignalUpdate() {
-  const now = Date.now();
-  if(now - lastSigTime < 3000) return; // max once per 3s
-  lastSigTime = now;
-  const mkt = checkMarket();
-  if(mkt.open || tick===0) {
-    const sig = genSignal(price);
-    if(sig.conf >= C.minConf) renderSig(sig);
-    renderTF(price);
-  }
-  renderSR();
-}
-
-/* ---- Main loop (runs after login) ---- */
-function startMainLoop() {
-  load();
-  renderSR(); renderOI(); renderPlan(); renderLog(); updateStats();
-
-  // If no WebSocket (Yahoo mode), poll every 5s market / 30s closed
-  function poll() {
-    tick++;
-    checkMarket();
-    const mkt = checkMarket();
-    const pcr=(0.95+Math.random()*0.55).toFixed(2);
-    const pe=document.getElementById('spcr'); if(pe){pe.textContent=pcr;pe.style.color=pcr>1?'var(--green)':'var(--red)';}
-    const vixCur=(D.vix+(Math.random()-0.5)*0.4).toFixed(1);
-    const ve=document.getElementById('svix'); if(ve) ve.textContent=vixCur;
-    const de=document.getElementById('sdte'); if(de) de.textContent=calcDTE();
-    if(!wsConnected) fetchYahooFallback();
-    if(tick%4===0||tick===1) renderOI();
-    const interval = mkt.open ? 5000 : 30000;
-    fetchTimer = setTimeout(poll, interval);
-  }
-  poll();
-  initCharts();
-}
-
-// Clock always runs — login screen stays visible until user acts
-setInterval(() => { checkMarket(); }, 1000);
-load();
-renderSR();
-// Login screen is shown by default (display:flex in HTML)
-// startMainLoop() is called only after doLogin() or skipLogin()
 </script>
 </body>
 </html>
