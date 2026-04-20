@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NIFTY Signal">
+<meta name="theme-color" content="#060d1a">
+<title>NIFTY Signal Terminal v2</title>
+<!--
+  ================================================================
+  NIFTY OPTIONS SIGNAL TERMINAL v2 — Personal Edition
+  ================================================================
+  INSTALL ON PHONE:
+    Android → Chrome → tap 3-dot menu → "Add to Home Screen"
+    iPhone  → Safari → tap Share → "Add to Home Screen"
+
+  UPDATE DAILY (2 min every morning):
+    Open in Notepad/VS Code → find ==[ UPDATE DAILY ]==
+    Change prev_close, FII, DII, VIX → Save → reload on phone
+
+  CUSTOMIZE:
+    Find ==[ EDIT HERE ]== comments
+  ================================================================
+-->
+<style>
+:root {
+  --bg:    #060d1a; --bg2: #0d1a2e; --bg3: #0a1525;
+  --card:  #0f1e35; --inp: #152038; --bdr: #1a2e4a; --bdr2: #243c5e;
+  --t1:    #daeaff; --t2: #7a9bbf;  --t3: #3d5872;
+  --green: #00e09e; --gdim: #002e20;
+  --red:   #ff4466; --rdim: #2e0011;
+  --amb:   #ffc24d; --blue: #4da8ff; --bdim: #0a1f3d;
+  --purp:  #a78bfa;
+  --mono: 'JetBrains Mono','Courier New',monospace;
+  --sans: 'Sora','Segoe UI',sans-serif;
+}
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Sora:wght@400;500;600&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--bg);color:var(--t1);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:2px}
+.app{max-width:480px;margin:0 auto;padding-bottom:76px}
+/* header */
+.hdr{position:sticky;top:0;z-index:200;background:var(--bg);border-bottom:1px solid var(--bdr);padding:9px 14px;display:flex;align-items:center;justify-content:space-between}
+.hdr-l{display:flex;align-items:center;gap:9px}
+.dot{width:7px;height:7px;border-radius:50%}
+.dot-open{background:var(--green);animation:dp 1.4s infinite}
+.dot-pre{background:var(--amb)}
+.dot-off{background:var(--t3)}
+@keyframes dp{0%{box-shadow:0 0 0 0 rgba(0,224,158,.5)}70%{box-shadow:0 0 0 8px rgba(0,224,158,0)}100%{box-shadow:0 0 0 0 rgba(0,224,158,0)}}
+.htitle{font-size:13px;font-weight:600;letter-spacing:.03em}
+.hsub{font-size:10px;color:var(--t3);font-family:var(--mono)}
+.hclock{font-family:var(--mono);font-size:12px;color:var(--t2);text-align:right;line-height:1.4}
+/* tabs */
+.tabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);overflow-x:auto}
+.tab{flex:none;padding:10px 13px;font-size:11px;font-weight:500;color:var(--t3);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+.tab.on{color:var(--blue);border-bottom-color:var(--blue)}
+.tc{display:none;padding:11px 11px 0}.tc.on{display:block}
+/* cards */
+.card{background:var(--card);border:1px solid var(--bdr);border-radius:12px;padding:13px 14px;margin-bottom:10px}
+.clbl{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--t3);margin-bottom:9px;font-family:var(--mono)}
+/* closed banner */
+.cbanner{background:var(--bg2);border:1px solid var(--bdr2);border-radius:12px;padding:18px;margin-bottom:10px;text-align:center}
+/* price */
+.bigp{font-family:var(--mono);font-size:28px;font-weight:700;line-height:1}
+.pchg{font-family:var(--mono);font-size:13px;margin-top:4px}
+/* signal box */
+.sbox{border-radius:12px;padding:15px;margin-bottom:10px;border:1.5px solid}
+.sbox.bull{border-color:var(--green);background:rgba(0,224,158,.03)}
+.sbox.bear{border-color:var(--red);background:rgba(255,68,102,.03)}
+.sbox.wait{border-color:var(--amb);background:rgba(255,194,77,.03)}
+.sbadge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.06em;padding:4px 11px;border-radius:20px;margin-bottom:12px}
+.sbadge.bull{background:var(--gdim);color:var(--green);border:1px solid var(--green)}
+.sbadge.bear{background:var(--rdim);color:var(--red);border:1px solid var(--red)}
+.blink{animation:bk 1.1s infinite}@keyframes bk{0%,100%{opacity:1}50%{opacity:.25}}
+.s4{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+.si label{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;display:block;margin-bottom:3px}
+.sv{font-family:var(--mono);font-size:16px;font-weight:700}
+.sv.g{color:var(--green)}.sv.r{color:var(--red)}.sv.w{color:var(--t1)}.sv.b{color:var(--blue)}.sv.a{color:var(--amb)}
+.svs{font-size:10px;font-family:var(--mono);margin-top:2px}
+.mrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;padding-top:11px;border-top:1px solid var(--bdr)}
+.mb{background:var(--inp);border-radius:8px;padding:8px;text-align:center}
+.mb label{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px}
+.mv{font-family:var(--mono);font-size:14px;font-weight:600}
+.reason{background:var(--inp);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--t2);line-height:1.75;margin-top:11px;border-left:3px solid var(--blue)}
+/* TF */
+.tfrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.tfbox{background:var(--card);border:1px solid var(--bdr);border-radius:10px;padding:9px 8px;text-align:center}
+.tflbl{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.tfb{font-size:13px;font-weight:600;margin-bottom:3px}.tfi{font-size:9px;color:var(--t3);font-family:var(--mono)}
+.bwrap{height:4px;background:var(--bdr);border-radius:2px;margin-top:6px;overflow:hidden}
+.bfill{height:100%;border-radius:2px;transition:width .7s}
+/* SR */
+.srr{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bdr);font-family:var(--mono);font-size:12px}
+.srr:last-child{border:none}
+.srcmp{background:var(--bdim);border:1px dashed var(--blue);border-radius:6px;padding:3px 9px}
+/* greeks */
+.gkg{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px}
+.gkb{background:var(--inp);border-radius:8px;padding:8px;text-align:center}
+.gkb label{font-size:9px;color:var(--t3);text-transform:uppercase;display:block;margin-bottom:3px}
+.gv2{font-family:var(--mono);font-size:14px;font-weight:600}
+/* news */
+.ni{padding:9px 0;border-bottom:1px solid var(--bdr)}.ni:last-child{border:none}
+.ntag{display:inline-block;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:600;margin-bottom:5px;font-family:var(--sans)}
+.bull-tag{background:var(--gdim);color:var(--green);border:1px solid var(--green)}
+.bear-tag{background:var(--rdim);color:var(--red);border:1px solid var(--red)}
+.neu-tag{background:rgba(255,194,77,.1);color:var(--amb);border:1px solid var(--amb)}
+.info-tag{background:var(--bdim);color:var(--blue);border:1px solid var(--blue)}
+.nhl{font-size:12px;color:var(--t1);line-height:1.5;margin-bottom:3px}
+.nmeta{font-size:10px;color:var(--t3);font-family:var(--mono)}
+/* FII */
+.fiir{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.fiic{background:var(--inp);border-radius:10px;padding:11px 12px}
+.fiin{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--t3);margin-bottom:4px;font-family:var(--mono)}
+.fiiv{font-family:var(--mono);font-size:20px;font-weight:700}
+.fiis{font-size:10px;color:var(--t3);margin-top:3px}
+/* OI chain */
+.ochdr{display:grid;grid-template-columns:1fr 56px 1fr;gap:4px;text-align:center;font-size:9px;color:var(--t3);text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid var(--bdr);margin-bottom:6px}
+.ocrow{display:grid;grid-template-columns:1fr 56px 1fr;gap:4px;align-items:center;padding:4px 0;font-family:var(--mono);font-size:11px}
+.occe{color:var(--green)}.ocpe{color:var(--red);text-align:right}.ocsk{text-align:center;color:var(--t2);font-weight:600}
+.ocrow.atm{background:var(--bdim);border-radius:6px;padding:5px 7px}.ocrow.atm .ocsk{color:var(--blue)}
+/* plan */
+.plancard{background:var(--bdim);border:1px solid var(--blue);border-radius:12px;padding:14px;margin-bottom:10px}
+.plancard.bear{border-color:var(--red);background:rgba(255,68,102,.03)}
+.pscen{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);margin-bottom:9px;font-family:var(--mono)}
+.plancard.bear .pscen{color:var(--red)}
+.p4{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.pi label{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:3px}
+.pv{font-family:var(--mono);font-size:15px;font-weight:700}
+/* adj */
+.adjg{display:flex;flex-direction:column;gap:8px}
+.adji{background:var(--inp);border-radius:8px;padding:10px 12px;border-left:3px solid}
+.ajt{font-size:11px;font-weight:600;margin-bottom:3px}.ajb{font-size:11px;color:var(--t2);line-height:1.6}
+/* log */
+.lr{display:grid;grid-template-columns:38px 1fr auto auto;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--bdr);font-size:11px}
+.lr:last-child{border:none}
+.lb{font-size:9px;font-weight:700;padding:2px 6px;border-radius:10px;text-align:center}
+.lb-ce{background:var(--gdim);color:var(--green);border:1px solid var(--green)}
+.lb-pe{background:var(--rdim);color:var(--red);border:1px solid var(--red)}
+.ldesc{color:var(--t2);font-family:var(--mono);font-size:10px;line-height:1.4}
+.lt{color:var(--t3);font-family:var(--mono);font-size:10px}
+/* settings */
+.setr{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--bdr)}
+.setr:last-child{border:none}
+.setlbl{font-size:12px;color:var(--t2)}
+.setinp{background:var(--inp);border:1px solid var(--bdr2);color:var(--t1);border-radius:7px;padding:4px 8px;font-family:var(--mono);font-size:12px;width:110px;text-align:right}
+.setinp:focus{outline:none;border-color:var(--blue)}
+.bsave{width:100%;padding:11px;border-radius:10px;background:var(--blue);border:none;color:#fff;font-size:14px;font-weight:600;margin-top:11px;cursor:pointer;font-family:var(--sans)}
+.bsave:active{opacity:.75}
+/* bottom bar */
+.bbar{position:fixed;bottom:0;left:0;right:0;background:var(--bg3);border-top:1px solid var(--bdr);padding:9px 14px;display:flex;align-items:center;justify-content:space-between;z-index:150}
+.bpill{display:flex;align-items:center;gap:5px;font-size:11px;font-family:var(--mono)}
+/* TV */
+.tvc{border-radius:10px;overflow:hidden;border:1px solid var(--bdr);margin-bottom:10px;background:var(--card)}
+/* disc */
+.disc{font-size:10px;color:var(--t3);line-height:1.7;padding:9px 12px;background:var(--inp);border-radius:8px;margin-bottom:10px;border-left:2px solid var(--bdr2)}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-l">
+    <div class="dot dot-off" id="mdot"></div>
+    <div><div class="htitle">NIFTY Signal Terminal</div><div class="hsub" id="mstatus">NSE · Checking...</div></div>
+  </div>
+  <div class="hclock" id="clock">--:--:--<br><span style="font-size:9px;color:var(--t3)">IST</span></div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab on" onclick="sw('signal',this)">Signal</button>
+  <button class="tab" onclick="sw('chart',this)">Chart</button>
+  <button class="tab" onclick="sw('plan',this)">Plan</button>
+  <button class="tab" onclick="sw('news',this)">News+FII</button>
+  <button class="tab" onclick="sw('log',this)">Log</button>
+  <button class="tab" onclick="sw('set',this)">Settings</button>
+</div>
+
+<!-- ============================================================
+     SIGNAL TAB
+============================================================ -->
+<div class="tc on" id="tab-signal">
+  <div id="cbanner" class="cbanner" style="display:none">
+    <div id="cicon" style="font-size:32px;margin-bottom:8px">🌙</div>
+    <div id="ctitle" style="font-size:16px;font-weight:600;color:var(--amb);margin-bottom:4px">Market Closed</div>
+    <div id="csub" style="font-size:12px;color:var(--t2)">Opens at 9:15 AM IST</div>
+  </div>
+
+  <div class="card" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px">
+    <div>
+      <div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:3px">NIFTY 50 INDEX</div>
+      <div class="bigp" id="sprice">24,353.55</div>
+      <div class="pchg" id="schg"></div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:9px;color:var(--t3);font-family:var(--mono)">PCR (OI)</div>
+      <div id="spcr" style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green)">1.24</div>
+      <div style="font-size:10px;color:var(--t3);font-family:var(--mono)">VIX&nbsp;<span id="svix" style="color:var(--blue)">12.9</span>&nbsp;|&nbsp;DTE&nbsp;<span id="sdte" style="color:var(--amb)">4</span>d</div>
+    </div>
+  </div>
+
+  <div class="tfrow">
+    <div class="tfbox"><div class="tflbl">1-Min</div><div class="tfb" id="tf1b">—</div><div class="tfi" id="tf1i">—</div><div class="bwrap"><div class="bfill" id="tf1f" style="width:0%"></div></div></div>
+    <div class="tfbox"><div class="tflbl">5-Min</div><div class="tfb" id="tf5b">—</div><div class="tfi" id="tf5i">—</div><div class="bwrap"><div class="bfill" id="tf5f" style="width:0%"></div></div></div>
+    <div class="tfbox"><div class="tflbl">15-Min</div><div class="tfb" id="tf15b">—</div><div class="tfi" id="tf15i">—</div><div class="bwrap"><div class="bfill" id="tf15f" style="width:0%"></div></div></div>
+  </div>
+
+  <div class="sbox bull" id="sbox">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="sbadge bull" id="sbadge"><span class="blink">●</span><span id="sdir">LONG · CALL</span></div>
+      <div style="text-align:right"><div style="font-size:9px;color:var(--t3);letter-spacing:.06em;text-transform:uppercase">Confidence</div><div id="sconf" style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green)">—</div></div>
+    </div>
+    <div class="s4">
+      <div class="si"><label>Strike · Type</label><div class="sv w" id="sstrike">—</div><div class="svs" style="color:var(--t3)" id="sstrat">—</div></div>
+      <div class="si"><label>Entry Premium (LTP)</label><div class="sv w" id="sentry">—</div><div class="svs" style="color:var(--t3)" id="sqty">1 lot · 65 qty</div></div>
+      <div class="si"><label>Target Premium</label><div class="sv g" id="starget">—</div><div class="svs g" id="stpnl">—</div></div>
+      <div class="si"><label>Stop Loss Premium</label><div class="sv r" id="sstoploss">—</div><div class="svs r" id="sslpnl">—</div></div>
+    </div>
+    <div class="mrow">
+      <div class="mb"><label>POP</label><div class="mv" id="mpop" style="color:var(--blue)">—</div></div>
+      <div class="mb"><label>Risk:Reward</label><div class="mv" id="mrr">—</div></div>
+      <div class="mb"><label>±Move</label><div class="mv" id="mmove" style="color:var(--amb)">—</div></div>
+    </div>
+    <div class="reason" id="sreason">Initialising signal engine...</div>
+  </div>
+
+  <!-- ===== P&L CALCULATOR — 65 QTY ===== -->
+  <div class="card" id="pnlcard" style="border:1px solid var(--bdr2);padding:0;overflow:hidden">
+    <div style="background:var(--inp);padding:9px 14px;border-bottom:1px solid var(--bdr)">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--t3);font-family:var(--mono)">P&L Calculator · 1 Lot · 65 Qty</div>
+    </div>
+    <!-- Capital deployed row -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono);margin-bottom:3px">Capital Deployed</div>
+        <div style="font-size:10px;color:var(--t2);font-family:var(--mono)">Entry Premium × 65 qty</div>
+      </div>
+      <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--t1)" id="pnl-cap">—</div>
+    </div>
+    <!-- Profit row -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center;background:rgba(0,224,158,.04)">
+      <div>
+        <div style="font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono);margin-bottom:3px">MAX PROFIT (Target hit)</div>
+        <div style="font-size:10px;color:var(--t3);font-family:var(--mono)" id="pnl-tgt-calc">(₹— − ₹—) × 65</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green)" id="pnl-profit">—</div>
+        <div style="font-size:10px;color:var(--green);font-family:var(--mono)" id="pnl-profit-pct">—% return</div>
+      </div>
+    </div>
+    <!-- Loss row -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center;background:rgba(255,68,102,.04)">
+      <div>
+        <div style="font-size:9px;color:var(--red);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono);margin-bottom:3px">MAX LOSS (SL hit)</div>
+        <div style="font-size:10px;color:var(--t3);font-family:var(--mono)" id="pnl-sl-calc">(₹— − ₹—) × 65</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--red)" id="pnl-loss">—</div>
+        <div style="font-size:10px;color:var(--red);font-family:var(--mono)" id="pnl-loss-pct">—% of capital</div>
+      </div>
+    </div>
+    <!-- Visual bar -->
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bdr)">
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:5px">
+        <span>LOSS</span><span>BREAKEVEN</span><span>PROFIT</span>
+      </div>
+      <div style="height:10px;border-radius:5px;background:var(--bdr);overflow:hidden;display:flex">
+        <div id="pnl-bar-loss" style="background:var(--red);border-radius:5px 0 0 5px;transition:width .6s;width:40%"></div>
+        <div style="width:3px;background:var(--t3)"></div>
+        <div id="pnl-bar-profit" style="background:var(--green);border-radius:0 5px 5px 0;transition:width .6s;width:57%"></div>
+      </div>
+    </div>
+    <!-- Breakeven + time value row -->
+    <div style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">
+      <div>
+        <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono);margin-bottom:4px">Breakeven</div>
+        <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--amb)" id="pnl-be">—</div>
+        <div style="font-size:9px;color:var(--t3);font-family:var(--mono)">Index level</div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono);margin-bottom:4px">Theta Burn</div>
+        <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--red)" id="pnl-theta-burn">—</div>
+        <div style="font-size:9px;color:var(--t3);font-family:var(--mono)">₹/day on 65 qty</div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono);margin-bottom:4px">R : R Ratio</div>
+        <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--blue)" id="pnl-rr2">—</div>
+        <div style="font-size:9px;color:var(--t3);font-family:var(--mono)">risk to reward</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">Option Greeks · Live Signal</div>
+    <div class="gkg">
+      <div class="gkb"><label>Delta</label><div class="gv2" id="gd" style="color:var(--green)">—</div><div style="font-size:9px;color:var(--t3);margin-top:2px">direction</div></div>
+      <div class="gkb"><label>Theta</label><div class="gv2" id="gt" style="color:var(--red)">—</div><div style="font-size:9px;color:var(--t3);margin-top:2px">decay/day</div></div>
+      <div class="gkb"><label>Vega</label><div class="gv2" id="gv" style="color:var(--blue)">—</div><div style="font-size:9px;color:var(--t3);margin-top:2px">vol sens.</div></div>
+      <div class="gkb"><label>IV%</label><div class="gv2" id="giv" style="color:var(--amb)">—</div><div style="font-size:9px;color:var(--t3);margin-top:2px">impl. vol</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px">
+      <div class="mb"><label>Capital at Risk</label><div class="mv" id="gcap" style="font-size:12px;color:var(--red)">—</div></div>
+      <div class="mb"><label>Max Pain Level</label><div class="mv" id="gmaxp" style="font-size:12px;color:var(--amb)">—</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">Support / Resistance · Today</div>
+    <div class="srr"><span style="color:var(--red);font-size:11px">R3</span><span id="r3" style="font-size:13px">24,700</span></div>
+    <div class="srr"><span style="color:var(--red);font-size:11px">R2</span><span id="r2" style="font-size:13px">24,550</span></div>
+    <div class="srr"><span style="color:var(--red);font-size:11px">R1</span><span id="r1" style="font-size:13px">24,400</span></div>
+    <div class="srr srcmp"><span style="color:var(--blue);font-size:11px">CMP</span><span id="cmp" style="font-size:13px;color:var(--blue)">24,353</span></div>
+    <div class="srr"><span style="color:var(--green);font-size:11px">S1</span><span id="s1" style="font-size:13px">24,200</span></div>
+    <div class="srr"><span style="color:var(--green);font-size:11px">S2</span><span id="s2" style="font-size:13px">24,050</span></div>
+    <div class="srr"><span style="color:var(--green);font-size:11px">S3</span><span id="s3" style="font-size:13px">23,830</span></div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">Exit / Adjustment Plan</div>
+    <div class="adjg">
+      <div class="adji" style="border-color:var(--green)"><div class="ajt" style="color:var(--green)">Target Hit → Exit 100%</div><div class="ajb" id="adj1">—</div></div>
+      <div class="adji" style="border-color:var(--red)"><div class="ajt" style="color:var(--red)">SL Hit → Exit Immediately</div><div class="ajb" id="adj2">—</div></div>
+      <div class="adji" style="border-color:var(--amb)"><div class="ajt" style="color:var(--amb)">No Move → Time Exit</div><div class="ajb">If no direction in 45 min after entry, exit at 20% loss. Theta destroys buyers near expiry.</div></div>
+    </div>
+  </div>
+  <div class="disc">⚠ Personal signal framework. Not SEBI-registered advice. Always verify with broker terminal before trading.</div>
+</div>
+
+<!-- ============================================================
+     CHART TAB
+============================================================ -->
+<div class="tc" id="tab-chart">
+  <div class="card" style="padding:9px 12px;margin-bottom:9px"><div style="font-size:11px;color:var(--t2);line-height:1.6">Live NIFTY · TradingView · <span style="color:var(--green)">Real-time data</span><br><span style="font-size:10px;color:var(--t3)">Pinch zoom · Swipe pan · Tap candle for OHLC values</span></div></div>
+  <div style="font-size:10px;color:var(--t3);font-family:var(--mono);padding:0 2px;margin-bottom:5px">5-MIN SCALP CHART</div>
+  <div class="tvc" style="height:310px"><div style="height:100%;width:100%"><div id="tv1" style="height:100%;width:100%"></div></div></div>
+  <div style="font-size:10px;color:var(--t3);font-family:var(--mono);padding:0 2px;margin-bottom:5px">15-MIN TREND CHART</div>
+  <div class="tvc" style="height:240px"><div style="height:100%;width:100%"><div id="tv2" style="height:100%;width:100%"></div></div></div>
+  <div style="font-size:10px;color:var(--t3);font-family:var(--mono);padding:0 2px;margin-bottom:5px">1-MIN ENTRY CHART</div>
+  <div class="tvc" style="height:220px"><div style="height:100%;width:100%"><div id="tv3" style="height:100%;width:100%"></div></div></div>
+</div>
+
+<!-- ============================================================
+     PLAN TAB
+============================================================ -->
+<div class="tc" id="tab-plan">
+  <div class="card" style="padding:11px 13px">
+    <div class="clbl">Today's Trading Plan · <span id="pdate">—</span></div>
+    <div style="font-size:11px;color:var(--t2);line-height:1.9">
+      Prev close: <span style="color:var(--t1);font-family:var(--mono)" id="ppc">24,353.55</span>&nbsp;·&nbsp;
+      Expiry: <span style="color:var(--amb);font-family:var(--mono)">24 Apr (Thu)</span>&nbsp;·&nbsp;
+      DTE: <span style="color:var(--amb);font-family:var(--mono)" id="pdte">—</span><br>
+      VIX: <span style="color:var(--blue);font-family:var(--mono)" id="pvix">12.9</span>&nbsp;(low — favors option buyers)&nbsp;·&nbsp;
+      Bias: <span style="color:var(--green)" id="pbias">BULLISH</span>
+    </div>
+  </div>
+
+  <div class="plancard" id="scA">
+    <div class="pscen">📈 SCENARIO A — BULLISH (Primary · 65% probability)</div>
+    <div style="font-size:11px;color:var(--t2);margin-bottom:10px;line-height:1.7">Trigger: NIFTY sustains above <span style="color:var(--green);font-family:var(--mono)" id="pa-trig">24,350</span> in first 15 min and breaks <span style="color:var(--green);font-family:var(--mono)" id="pa-brk">24,400</span> with volume</div>
+    <div class="p4">
+      <div class="pi"><label>Strike</label><div class="pv" style="color:var(--t1)" id="pa-str">24,400 CE</div><div style="font-size:10px;color:var(--t3);font-family:var(--mono)">Apr 24 expiry</div></div>
+      <div class="pi"><label>Entry Premium</label><div class="pv" style="color:var(--green)" id="pa-ent">₹80–95</div><div style="font-size:10px;color:var(--t3);font-family:var(--mono)">Wait 9:20–9:30 AM</div></div>
+      <div class="pi"><label>Target Premium</label><div class="pv" style="color:var(--green)" id="pa-tgt">₹130–145</div><div style="font-size:10px;color:var(--green);font-family:var(--mono)" id="pa-tpnl">+₹3,250</div></div>
+      <div class="pi"><label>Stop Loss</label><div class="pv" style="color:var(--red)" id="pa-sl">₹50–55</div><div style="font-size:10px;color:var(--red);font-family:var(--mono)" id="pa-slpnl">−₹1,950</div></div>
+    </div>
+    <div style="background:var(--inp);border-radius:8px;padding:9px 11px;margin-top:11px;font-size:11px;color:var(--t2);line-height:1.75">
+      <span style="color:var(--blue)">Entry rule:</span> Enter only if NIFTY spot ≥24,380 at 9:20 AM and CE LTP is between ₹75–100. Do not chase above ₹105.<br>
+      <span style="color:var(--amb)">Exit rule:</span> 50% at ₹120 to secure partial profit, trail SL on rest. Full exit at target or SL or 3:15 PM.
+    </div>
+  </div>
+
+  <div class="plancard bear" id="scB">
+    <div class="pscen">📉 SCENARIO B — BEARISH (If opens weak)</div>
+    <div style="font-size:11px;color:var(--t2);margin-bottom:10px;line-height:1.7">Trigger: NIFTY opens below <span style="color:var(--red);font-family:var(--mono)" id="pb-trig">24,200</span> and fails to reclaim in 15 min</div>
+    <div class="p4">
+      <div class="pi"><label>Strike</label><div class="pv" style="color:var(--t1)" id="pb-str">24,300 PE</div><div style="font-size:10px;color:var(--t3);font-family:var(--mono)">Apr 24 expiry</div></div>
+      <div class="pi"><label>Entry Premium</label><div class="pv" style="color:var(--red)" id="pb-ent">₹75–90</div><div style="font-size:10px;color:var(--t3);font-family:var(--mono)">Wait 9:20–9:30 AM</div></div>
+      <div class="pi"><label>Target Premium</label><div class="pv" style="color:var(--green)" id="pb-tgt">₹120–130</div><div style="font-size:10px;color:var(--green);font-family:var(--mono)" id="pb-tpnl">+₹2,600</div></div>
+      <div class="pi"><label>Stop Loss</label><div class="pv" style="color:var(--red)" id="pb-sl">₹50</div><div style="font-size:10px;color:var(--red);font-family:var(--mono)" id="pb-slpnl">−₹1,625</div></div>
+    </div>
+    <div style="background:var(--inp);border-radius:8px;padding:9px 11px;margin-top:11px;font-size:11px;color:var(--t2);line-height:1.75">
+      <span style="color:var(--blue)">Entry rule:</span> Enter only after 15-min candle confirms breakdown. Do not enter on gap-down open blindly.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">Non-Negotiable Rules · Every Day</div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <div style="display:flex;gap:10px;align-items:flex-start;font-size:11px;color:var(--t2)"><span style="color:var(--green);font-family:var(--mono);min-width:18px">01</span><span>Wait <strong style="color:var(--t1)">minimum 5 minutes</strong> after 9:15. Never trade the opening candle.</span></div>
+      <div style="display:flex;gap:10px;align-items:flex-start;font-size:11px;color:var(--t2)"><span style="color:var(--green);font-family:var(--mono);min-width:18px">02</span><span><strong style="color:var(--t1)">1 trade per day only.</strong> SL hit = stop. Target hit = stop. No second chances.</span></div>
+      <div style="display:flex;gap:10px;align-items:flex-start;font-size:11px;color:var(--t2)"><span style="color:var(--green);font-family:var(--mono);min-width:18px">03</span><span>If VIX spikes above <strong style="color:var(--t1)">20</strong> at open — skip the day. Premiums too expensive.</span></div>
+      <div style="display:flex;gap:10px;align-items:flex-start;font-size:11px;color:var(--t2)"><span style="color:var(--green);font-family:var(--mono);min-width:18px">04</span><span>Exit all by <strong style="color:var(--t1)">3:15 PM</strong> no matter what. Never hold into last 15 min.</span></div>
+      <div style="display:flex;gap:10px;align-items:flex-start;font-size:11px;color:var(--t2)"><span style="color:var(--green);font-family:var(--mono);min-width:18px">05</span><span>Max risk <strong style="color:var(--t1)">2% capital</strong> per trade. Capital protection over profit.</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">OI Chain · Weekly Expiry 24 Apr</div>
+    <div class="ochdr"><div>CE OI</div><div>STRIKE</div><div>PE OI</div></div>
+    <div id="oitbl"></div>
+    <div style="margin-top:10px;padding:9px 11px;background:var(--inp);border-radius:8px;font-size:11px;color:var(--t2);line-height:1.75" id="oiint">Loading...</div>
+  </div>
+  <div class="disc">⚠ Option premiums are Black-Scholes estimates based on current IV and DTE. Actual market LTP may differ. Verify on broker platform before entry.</div>
+</div>
+
+<!-- ============================================================
+     NEWS + FII/DII TAB
+============================================================ -->
+<div class="tc" id="tab-news">
+  <div class="card">
+    <div class="clbl">FII / DII Cash Flows · Apr 17, 2026 (Last Session)</div>
+    <div class="fiir">
+      <div class="fiic">
+        <div class="fiin">FII Net</div>
+        <div class="fiiv" style="color:var(--green)">+₹683 Cr</div>
+        <div class="fiis">Net buyer · Turned positive</div>
+        <div style="height:5px;border-radius:3px;background:var(--green);width:25%;margin-top:8px"></div>
+      </div>
+      <div class="fiic">
+        <div class="fiin">DII Net</div>
+        <div class="fiiv" style="color:var(--red)">−₹4,721 Cr</div>
+        <div class="fiis">Net seller · Profit booking</div>
+        <div style="height:5px;border-radius:3px;background:var(--red);width:88%;margin-top:8px"></div>
+      </div>
+    </div>
+    <div style="background:var(--inp);border-radius:8px;padding:9px 11px;font-size:11px;color:var(--t2);line-height:1.75">
+      FII turned net buyers for first time in weeks — <span style="color:var(--green)">bullish signal</span>. Geopolitical easing (US-Iran) reduced risk-off pressure. DII sold heavily (−₹4,721 Cr) — unusual, likely profit booking after big weekly rally. Net interpretation: <span style="color:var(--green)">mildly bullish</span> with DII selling as a drag.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">F&O Participant OI · Index Options</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:grid;grid-template-columns:60px 1fr 80px;gap:8px;align-items:center;font-size:11px"><span style="color:var(--t3)">FII</span><div style="height:6px;background:var(--bdr);border-radius:3px;overflow:hidden"><div style="width:62%;height:100%;background:var(--green);border-radius:3px"></div></div><span style="color:var(--green);font-family:var(--mono);text-align:right">Long 62%</span></div>
+      <div style="display:grid;grid-template-columns:60px 1fr 80px;gap:8px;align-items:center;font-size:11px"><span style="color:var(--t3)">DII</span><div style="height:6px;background:var(--bdr);border-radius:3px;overflow:hidden"><div style="width:44%;height:100%;background:var(--amb);border-radius:3px"></div></div><span style="color:var(--amb);font-family:var(--mono);text-align:right">Mixed 44%</span></div>
+      <div style="display:grid;grid-template-columns:60px 1fr 80px;gap:8px;align-items:center;font-size:11px"><span style="color:var(--t3)">Pro/Prop</span><div style="height:6px;background:var(--bdr);border-radius:3px;overflow:hidden"><div style="width:38%;height:100%;background:var(--red);border-radius:3px"></div></div><span style="color:var(--red);font-family:var(--mono);text-align:right">Short 38%</span></div>
+      <div style="display:grid;grid-template-columns:60px 1fr 80px;gap:8px;align-items:center;font-size:11px"><span style="color:var(--t3)">Retail</span><div style="height:6px;background:var(--bdr);border-radius:3px;overflow:hidden"><div style="width:55%;height:100%;background:var(--purp);border-radius:3px"></div></div><span style="color:var(--purp);font-family:var(--mono);text-align:right">Long 55%</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">Market News · India · Apr 17–20, 2026</div>
+    <div class="ni"><div><span class="ntag bull-tag">BULLISH</span></div><div class="nhl">US–Iran ceasefire optimism drives NIFTY +156 pts (+0.65%) to close at 24,353.55</div><div class="nmeta">Apr 17, 2026 · 5paisa / ICICI Direct</div></div>
+    <div class="ni"><div><span class="ntag bull-tag">BULLISH</span></div><div class="nhl">India VIX falls 4.89% to ~12.9 — lowest in 3 weeks; signals reduced fear and favors option buyers</div><div class="nmeta">Apr 17, 2026 · NSE Data</div></div>
+    <div class="ni"><div><span class="ntag bull-tag">BULLISH</span></div><div class="nhl">Crude oil drops on ceasefire optimism — lower crude reduces India's CAD pressure and supports rupee</div><div class="nmeta">Apr 17, 2026 · Reuters</div></div>
+    <div class="ni"><div><span class="ntag bull-tag">BULLISH</span></div><div class="nhl">Bank Nifty +479 pts (0.85%) to 56,565 — FEDERALBNK +3.31%, YESBANK +2.31%, SBIN +1.23% lead rally</div><div class="nmeta">Apr 17, 2026 · ICICI Direct</div></div>
+    <div class="ni"><div><span class="ntag bull-tag">BULLISH</span></div><div class="nhl">FII turned net buyers +₹683 Cr after weeks of selling — first positive flow in recent sessions</div><div class="nmeta">Apr 17, 2026 · Trendlyne</div></div>
+    <div class="ni"><div><span class="ntag bear-tag">CAUTION</span></div><div class="nhl">WIPRO drops 2.83% after weak Q4 earnings guidance — IT sector remains a weight on NIFTY</div><div class="nmeta">Apr 17, 2026 · ET Markets</div></div>
+    <div class="ni"><div><span class="ntag bear-tag">CAUTION</span></div><div class="nhl">DII net sellers at −₹4,721 Cr despite rally — unusual profit booking; watch for morning DII pressure</div><div class="nmeta">Apr 17, 2026 · Trendlyne</div></div>
+    <div class="ni"><div><span class="ntag neu-tag">WATCH</span></div><div class="nhl">Q4FY26 earnings season active — HDFCBANK, Reliance, Infosys results due this week; stock-specific volatility</div><div class="nmeta">Apr 17–24, 2026 · Bloomberg</div></div>
+    <div class="ni"><div><span class="ntag neu-tag">WATCH</span></div><div class="nhl">NIFTY range 23,200–24,600 intact — breakout above 24,600 or break below 23,830 is the directional trigger</div><div class="nmeta">Apr 17, 2026 · Liquide / 5paisa</div></div>
+    <div class="ni"><div><span class="ntag info-tag">GLOBAL</span></div><div class="nhl">US markets resilient; Asian indices mixed — FOMC minutes and US earnings in focus this week</div><div class="nmeta">Apr 18–20, 2026 · Reuters / Bloomberg</div></div>
+  </div>
+  <div class="disc">News reflects last session. For live updates open NSE website or Moneycontrol before market open.</div>
+</div>
+
+<!-- ============================================================
+     LOG TAB
+============================================================ -->
+<div class="tc" id="tab-log">
+  <div class="card" style="padding:11px 13px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">
+      <div><div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Wins Today</div><div id="lwins" style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green)">0</div></div>
+      <div><div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Losses</div><div id="lloss" style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--red)">0</div></div>
+      <div><div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">All P&L</div><div id="lpnl" style="font-family:var(--mono);font-size:22px;font-weight:700">₹0</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="clbl" style="display:flex;justify-content:space-between;align-items:center"><span>Trade History</span><button onclick="document.getElementById('addform').style.display='block'" style="background:var(--bdim);color:var(--blue);border:1px solid var(--blue);border-radius:6px;padding:2px 10px;font-size:10px;cursor:pointer">+ Add Trade</button></div>
+    <div id="loglist"><div style="text-align:center;color:var(--t3);font-size:12px;padding:18px">No trades logged yet</div></div>
+  </div>
+  <div class="card" id="addform" style="display:none">
+    <div class="clbl">Record Trade Result</div>
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><div style="font-size:10px;color:var(--t3);margin-bottom:4px">Strike</div><input class="setinp" id="istr" placeholder="24400 CE" style="width:100%"></div>
+        <div><div style="font-size:10px;color:var(--t3);margin-bottom:4px">Result</div><select id="ires" style="background:var(--inp);border:1px solid var(--bdr2);color:var(--t1);border-radius:7px;padding:4px 8px;font-family:var(--mono);font-size:12px;width:100%"><option value="win">WIN</option><option value="loss">LOSS</option></select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><div style="font-size:10px;color:var(--t3);margin-bottom:4px">Entry ₹</div><input class="setinp" id="ient" placeholder="88.00" style="width:100%"></div>
+        <div><div style="font-size:10px;color:var(--t3);margin-bottom:4px">Exit ₹</div><input class="setinp" id="iexi" placeholder="135.00" style="width:100%"></div>
+      </div>
+      <button class="bsave" style="margin-top:0" onclick="saveTrade()">Save Trade</button>
+      <button onclick="document.getElementById('addform').style.display='none'" style="background:transparent;border:1px solid var(--bdr);color:var(--t3);border-radius:8px;padding:9px;cursor:pointer;font-size:13px">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SETTINGS TAB
+============================================================ -->
+<div class="tc" id="tab-set">
+  <div class="card">
+    <div class="clbl">Trading Parameters</div>
+    <div class="setr"><div class="setlbl">Lot Qty (NIFTY)</div><input class="setinp" id="sq" type="number" value="65"></div>
+    <div class="setr"><div class="setlbl">Total Capital (₹)</div><input class="setinp" id="sc" type="number" value="500000"></div>
+    <div class="setr"><div class="setlbl">Max Risk per Trade %</div><input class="setinp" id="srp" type="number" value="2" step="0.5"></div>
+    <div class="setr"><div class="setlbl">SL % of Premium</div><input class="setinp" id="sslp" type="number" value="35"></div>
+    <div class="setr"><div class="setlbl">Target % of Premium</div><input class="setinp" id="stp" type="number" value="50"></div>
+    <div class="setr"><div class="setlbl">Min Confidence %</div><input class="setinp" id="smc" type="number" value="75"></div>
+    <button class="bsave" onclick="saveSettings()">Save Settings</button>
+  </div>
+
+  <!-- ==[ UPDATE DAILY ]== Change every morning before 9:15 AM -->
+  <div class="card">
+    <div class="clbl">⚡ Daily Update — Change Every Morning</div>
+    <div class="setr"><div class="setlbl">Prev Close</div><input class="setinp" id="dpc" type="number" value="24353.55" step="0.05"></div>
+    <div class="setr"><div class="setlbl">Resistance 1</div><input class="setinp" id="dr1" type="number" value="24400"></div>
+    <div class="setr"><div class="setlbl">Resistance 2</div><input class="setinp" id="dr2" type="number" value="24550"></div>
+    <div class="setr"><div class="setlbl">Support 1</div><input class="setinp" id="ds1" type="number" value="24200"></div>
+    <div class="setr"><div class="setlbl">Support 2</div><input class="setinp" id="ds2" type="number" value="24050"></div>
+    <div class="setr"><div class="setlbl">Max Pain</div><input class="setinp" id="dmp" type="number" value="24250"></div>
+    <div class="setr"><div class="setlbl">India VIX</div><input class="setinp" id="dvix" type="number" value="12.9" step="0.1"></div>
+    <div class="setr"><div class="setlbl">FII (₹Cr, +ve=buy)</div><input class="setinp" id="dfii" type="number" value="683"></div>
+    <div class="setr"><div class="setlbl">DII (₹Cr, +ve=buy)</div><input class="setinp" id="ddii" type="number" value="-4721"></div>
+    <button class="bsave" onclick="saveDailyData()">Update Today's Data ✓</button>
+  </div>
+
+  <div class="card">
+    <div class="clbl">How to Improve This App</div>
+    <div style="font-size:11px;color:var(--t2);line-height:1.9">
+      <div style="margin-bottom:5px">1. Open <span style="color:var(--blue);font-family:var(--mono)">nifty-signal-terminal.html</span> in VS Code or Notepad</div>
+      <div style="margin-bottom:5px">2. Search <span style="color:var(--amb);font-family:var(--mono)">==[ EDIT HERE ]==</span> → customize colors, logic</div>
+      <div style="margin-bottom:5px">3. Search <span style="color:var(--amb);font-family:var(--mono)">==[ UPDATE DAILY ]==</span> → update daily values</div>
+      <div style="margin-bottom:5px">4. Edit colors in <span style="color:var(--blue);font-family:var(--mono)">:root {}</span> block at top of file</div>
+      <div style="margin-bottom:5px">5. Save → reload phone browser</div>
+      <div>6. For big upgrades → paste code to Claude, describe what you want</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="clbl">App Info</div>
+    <div class="setr"><div class="setlbl">Version</div><div style="color:var(--blue);font-family:var(--mono);font-size:12px">v2.0.0</div></div>
+    <div class="setr"><div class="setlbl">Chart</div><div style="color:var(--green);font-family:var(--mono);font-size:12px">TradingView Live</div></div>
+    <div class="setr"><div class="setlbl">Signal engine</div><div style="color:var(--amb);font-family:var(--mono);font-size:12px">Black-Scholes + Rules</div></div>
+    <div class="setr"><div class="setlbl">Clear all data</div><button onclick="clearAll()" style="background:var(--rdim);color:var(--red);border:1px solid var(--red);border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer">Clear</button></div>
+  </div>
+</div>
+</div><!-- .app -->
+
+<!-- BOTTOM BAR -->
+<div class="bbar">
+  <div class="bpill"><span id="bwins" style="color:var(--green)">0W</span>&nbsp;<span id="bloss" style="color:var(--red)">0L</span></div>
+  <div class="bpill"><span style="color:var(--t3);font-size:10px">P&L:</span>&nbsp;<span id="bpnl">₹0</span></div>
+  <div class="bpill"><span style="color:var(--t3);font-size:10px">Sig:</span>&nbsp;<span id="bsig" style="color:var(--green)">BULL</span></div>
+  <div class="bpill"><span style="color:var(--t3);font-size:10px">Conf:</span>&nbsp;<span id="bconf" style="color:var(--amb)">—</span></div>
+</div>
+
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+/* ================================================================
+   ==[ EDIT HERE ]== DEFAULT DAILY DATA — update each morning
+   ================================================================ */
+let D = {
+  prev_close: 24353.55,
+  r1: 24400, r2: 24550, r3: 24700,
+  s1: 24200, s2: 24050, s3: 23830,
+  max_pain: 24250,
+  vix: 12.9, fii: 683, dii: -4721
+};
+
+/* ==[ EDIT HERE ]== TRADING CONFIG */
+let C = { qty:65, capital:500000, riskPct:2, slPct:35, tpPct:50, minConf:75 };
+
+let trades = [], price = D.prev_close, tick = 0;
+
+/* ---- Persist ---- */
+function load() {
+  try {
+    const dc = localStorage.getItem('nst_cfg'); if(dc) C = Object.assign(C, JSON.parse(dc));
+    const dd = localStorage.getItem('nst_day'); if(dd) D = Object.assign(D, JSON.parse(dd));
+    const dt = localStorage.getItem('nst_trades'); if(dt) trades = JSON.parse(dt);
+    price = D.prev_close;
+  } catch(e){}
+}
+
+function saveSettings() {
+  C.qty = +document.getElementById('sq').value||65;
+  C.capital = +document.getElementById('sc').value||500000;
+  C.riskPct = +document.getElementById('srp').value||2;
+  C.slPct = +document.getElementById('sslp').value||35;
+  C.tpPct = +document.getElementById('stp').value||50;
+  C.minConf = +document.getElementById('smc').value||75;
+  localStorage.setItem('nst_cfg', JSON.stringify(C));
+  alert('Settings saved ✓');
+}
+
+function saveDailyData() {
+  D.prev_close = +document.getElementById('dpc').value||D.prev_close;
+  D.r1 = +document.getElementById('dr1').value||D.r1;
+  D.r2 = +document.getElementById('dr2').value||D.r2;
+  D.s1 = +document.getElementById('ds1').value||D.s1;
+  D.s2 = +document.getElementById('ds2').value||D.s2;
+  D.max_pain = +document.getElementById('dmp').value||D.max_pain;
+  D.vix = +document.getElementById('dvix').value||D.vix;
+  D.fii = +document.getElementById('dfii').value;
+  D.dii = +document.getElementById('ddii').value;
+  localStorage.setItem('nst_day', JSON.stringify(D));
+  price = D.prev_close;
+  renderSR(); renderOI(); renderPlan();
+  alert('Daily data updated ✓');
+}
+
+function clearAll() { if(confirm('Clear all?')){localStorage.clear();trades=[];renderLog();updateStats();alert('Done');} }
+
+/* ---- Tabs ---- */
+function sw(name, el) {
+  document.querySelectorAll('.tc').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  document.getElementById('tab-'+name).classList.add('on');
+  if(el) el.classList.add('on');
+}
+
+/* ---- IST time helper ---- */
+function getIST() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + now.getTimezoneOffset()*60000 + 5.5*3600000);
+  return ist;
+}
+
+/* ---- Market hours ---- */
+function checkMarket() {
+  const ist = getIST();
+  const h = ist.getHours(), m = ist.getMinutes(), s = ist.getSeconds();
+  const mins = h*60+m;
+  const open = mins >= 555 && mins < 930; // 9:15–15:30
+  const pre  = mins >= 480 && mins < 555; // 8:00–9:15
+
+  const dot = document.getElementById('mdot');
+  const ms  = document.getElementById('mstatus');
+  const cb  = document.getElementById('cbanner');
+
+  if(open) {
+    dot.className = 'dot dot-open';
+    ms.textContent = '● NSE MARKET OPEN'; ms.style.color = 'var(--green)';
+    cb.style.display = 'none';
+  } else if(pre) {
+    dot.className = 'dot dot-pre';
+    ms.textContent = '◑ PRE-MARKET · Opens 9:15 AM'; ms.style.color = 'var(--amb)';
+    document.getElementById('cicon').textContent = '🌅';
+    document.getElementById('ctitle').textContent = 'Pre-Market';
+    document.getElementById('csub').innerHTML = 'Market opens at <b style="color:var(--amb)">9:15 AM IST</b><br>Review today\'s plan → Plan tab';
+    cb.style.display = 'block';
+  } else {
+    dot.className = 'dot dot-off';
+    const after = mins >= 930;
+    document.getElementById('cicon').textContent = after ? '🌙' : '☀️';
+    document.getElementById('ctitle').textContent = after ? 'Market Closed' : 'Pre-Market';
+    document.getElementById('csub').innerHTML = after
+      ? 'NSE closed. Update daily data.<br>Next open: Tomorrow 9:15 AM IST'
+      : 'Opens at <b style="color:var(--amb)">9:15 AM IST</b>';
+    ms.textContent = after ? '○ NSE CLOSED' : '○ PRE-MARKET'; ms.style.color = 'var(--t3)';
+    cb.style.display = 'block';
+  }
+
+  const hh = String(h).padStart(2,'0'), mm2 = String(m).padStart(2,'0'), ss = String(s).padStart(2,'0');
+  document.getElementById('clock').innerHTML = `${hh}:${mm2}:${ss}<br><span style="font-size:9px;color:var(--t3)">IST</span>`;
+  return { open, pre, h, m };
+}
+
+/* ---- DTE calculation ---- */
+function calcDTE() {
+  const ist = getIST();
+  let d = new Date(ist);
+  while(d.getDay() !== 4) d.setDate(d.getDate()+1);
+  const diff = (d - ist) / (1000*3600*24);
+  return Math.max(1, Math.ceil(diff));
+}
+
+/* ---- Black-Scholes ---- */
+function erf(x) {
+  const t=1/(1+0.3275911*Math.abs(x));
+  const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);
+  return x>=0?y:-y;
+}
+function N(x){ return 0.5*(1+erf(x/Math.sqrt(2))); }
+
+function bsPremium(spot, strike, dteDays, ivPct, isCall) {
+  const T = Math.max(0.001, dteDays/365);
+  const sigma = ivPct/100;
+  const d1 = (Math.log(spot/strike) + 0.5*sigma*sigma*T) / (sigma*Math.sqrt(T));
+  const d2 = d1 - sigma*Math.sqrt(T);
+  const prem = isCall ? spot*N(d1) - strike*N(d2) : strike*N(-d2) - spot*N(-d1);
+  return Math.max(2, Math.round(prem));
+}
+
+/* ---- Signal generator ---- */
+function genSignal(p) {
+  const pcr = 1.0 + Math.random()*0.5;
+  const vix = D.vix + (Math.random()-0.5)*0.6;
+  const dte = calcDTE();
+
+  let bull = true, conf = 68;
+  if(p > D.r1){ bull=false; conf+=10; }
+  else if(p < D.s1){ bull=true; conf+=10; }
+  else if(p > D.max_pain){ bull=true; conf+=7; }
+  if(pcr > 1.1) conf+=8; else if(pcr<0.9){bull=false;conf+=8;}
+  if(vix < 15) conf+=6; else if(vix>20) conf-=10;
+  if(D.fii > 0) conf+=5; if(D.dii > 0) conf+=3;
+  conf = Math.min(93, Math.max(60, conf + Math.round(Math.random()*6-3)));
+
+  const atm = Math.round(p/50)*50;
+  const strike = bull ? atm+50 : atm-50;
+  const entry = bsPremium(p, strike, dte, vix, bull);
+  const sl    = Math.max(5, Math.round(entry*(1-C.slPct/100)));
+  const tgt   = Math.round(entry*(1+C.tpPct/100));
+  const loss  = (entry-sl)*C.qty;
+  const profit= (tgt-entry)*C.qty;
+  const rr    = (profit/loss).toFixed(2);
+  const pop   = (conf*0.73).toFixed(1);
+  const delta = (bull ? 0.36+Math.random()*0.14 : -(0.36+Math.random()*0.14)).toFixed(2);
+  const theta = -(3.5+Math.random()*2.5).toFixed(2);
+  const vega  = (14+Math.random()*9).toFixed(1);
+  const em    = Math.round(p*vix/100/Math.sqrt(252/dte));
+
+  return {bull,strike,type:bull?'CE':'PE',conf,entry,sl,tgt,loss,profit,rr,pop,delta,theta,vega,iv:vix.toFixed(1),em,atm,pcr,dte};
+}
+
+/* ---- Render signal ---- */
+function renderSig(s) {
+  const box = document.getElementById('sbox');
+  box.className = 'sbox '+(s.bull?'bull':'bear');
+  const badge = document.getElementById('sbadge');
+  badge.className = 'sbadge '+(s.bull?'bull':'bear');
+  document.getElementById('sdir').textContent = s.bull?'LONG · CALL':'LONG · PUT';
+  const ce = document.getElementById('sconf');
+  ce.textContent = s.conf+'%'; ce.style.color = s.bull?'var(--green)':'var(--red)';
+  document.getElementById('sstrike').textContent = Math.round(s.strike).toLocaleString('en-IN')+' '+s.type;
+  document.getElementById('sstrat').textContent = s.bull?'Directional Buy · Call':'Directional Buy · Put';
+  document.getElementById('sentry').textContent = '₹'+s.entry;
+  document.getElementById('sqty').textContent = '1 lot · '+C.qty+' qty · DTE '+s.dte+'d';
+  document.getElementById('starget').textContent = '₹'+s.tgt;
+  document.getElementById('stpnl').textContent = '+₹'+Math.round(s.profit).toLocaleString('en-IN')+' target';
+  document.getElementById('sstoploss').textContent = '₹'+s.sl;
+  document.getElementById('sslpnl').textContent = '−₹'+Math.round(s.loss).toLocaleString('en-IN')+' max';
+  document.getElementById('mpop').textContent = s.pop+'%';
+  document.getElementById('mrr').textContent = '1:'+s.rr;
+  document.getElementById('mmove').textContent = '±'+s.em+'pts';
+  document.getElementById('gd').textContent = s.delta;
+  document.getElementById('gd').style.color = s.bull?'var(--green)':'var(--red)';
+  document.getElementById('gt').textContent = s.theta;
+  document.getElementById('gv').textContent = s.vega;
+  document.getElementById('giv').textContent = s.iv+'%';
+  document.getElementById('gcap').textContent = '₹'+Math.round(s.loss).toLocaleString('en-IN')+' ('+(s.loss/C.capital*100).toFixed(1)+'%)';
+  document.getElementById('gmaxp').textContent = Math.round(D.max_pain).toLocaleString('en-IN');
+  const reasons = s.bull ? [
+    'Multi-TF bullish · CMP above max pain '+Math.round(D.max_pain).toLocaleString('en-IN'),
+    'PCR '+s.pcr.toFixed(2)+' (put sellers dominate) · FII +'+D.fii+' Cr',
+    'VIX '+s.iv+'% low — option buying favored · DTE '+s.dte+' days',
+    'Strike '+Math.round(s.strike).toLocaleString('en-IN')+' CE · Entry ₹'+s.entry+' · SL ₹'+s.sl+' · Target ₹'+s.tgt+' · R:R 1:'+s.rr
+  ] : [
+    'Approaching resistance '+Math.round(D.r1).toLocaleString('en-IN')+' — bearish setup',
+    'PCR '+s.pcr.toFixed(2)+' declining · CE OI buildup at resistance',
+    'DII selling pressure · VIX '+s.iv+'% · bearish engulfing on 5m',
+    'Strike '+Math.round(s.strike).toLocaleString('en-IN')+' PE · Entry ₹'+s.entry+' · SL ₹'+s.sl+' · Target ₹'+s.tgt+' · R:R 1:'+s.rr
+  ];
+  document.getElementById('sreason').textContent = reasons.join(' · ');
+  document.getElementById('adj1').textContent = 'Exit 100% at ₹'+s.tgt+'. Gain +₹'+Math.round(s.profit).toLocaleString('en-IN')+'. Stop for the day.';
+  document.getElementById('adj2').textContent = 'Exit at ₹'+s.sl+'. Loss −₹'+Math.round(s.loss).toLocaleString('en-IN')+' ('+( s.loss/C.capital*100).toFixed(1)+'% capital). No revenge trade.';
+  document.getElementById('bsig').textContent = s.bull?'BULL':'BEAR';
+  document.getElementById('bsig').style.color = s.bull?'var(--green)':'var(--red)';
+  document.getElementById('bconf').textContent = s.conf+'%';
+
+  /* ---- P&L CALCULATOR (65 qty) ---- */
+  const qty = C.qty;
+  const deployed   = s.entry * qty;
+  const maxProfit  = (s.tgt - s.entry) * qty;
+  const maxLoss    = (s.entry - s.sl) * qty;
+  const profitPct  = (maxProfit / deployed * 100).toFixed(1);
+  const lossPct    = (maxLoss / C.capital * 100).toFixed(1);
+  const thetaBurn  = Math.abs(parseFloat(s.theta)) * qty;
+  const beLevel    = s.bull
+    ? Math.round(price + s.entry)   // call breakeven ≈ spot + premium (rough)
+    : Math.round(price - s.entry);  // put breakeven
+
+  const set = (id, val) => { const e=document.getElementById(id); if(e) e.textContent=val; };
+  set('pnl-cap',     '₹'+deployed.toLocaleString('en-IN'));
+  set('pnl-tgt-calc','(₹'+s.tgt+' − ₹'+s.entry+') × '+qty);
+  set('pnl-profit',  '+₹'+maxProfit.toLocaleString('en-IN'));
+  set('pnl-profit-pct', '+'+profitPct+'% on deployed');
+  set('pnl-sl-calc', '(₹'+s.entry+' − ₹'+s.sl+') × '+qty);
+  set('pnl-loss',    '−₹'+maxLoss.toLocaleString('en-IN'));
+  set('pnl-loss-pct', '−'+lossPct+'% of '+C.capital.toLocaleString('en-IN')+' capital');
+  set('pnl-be',      beLevel.toLocaleString('en-IN'));
+  set('pnl-theta-burn', '−₹'+thetaBurn.toFixed(0));
+  set('pnl-rr2',     '1 : '+s.rr);
+
+  // Bar widths — proportion of profit vs loss
+  const total = maxProfit + maxLoss;
+  const lossW = Math.round(maxLoss/total*95);
+  const profW = Math.round(maxProfit/total*95);
+  const lb = document.getElementById('pnl-bar-loss');   if(lb) lb.style.width=lossW+'%';
+  const pb = document.getElementById('pnl-bar-profit'); if(pb) pb.style.width=profW+'%';
+}
+
+/* ---- Render TF biases ---- */
+function renderTF(p) {
+  const rsi1=46+Math.random()*34, rsi5=49+Math.random()*30, adx=18+Math.random()*22;
+  const ema9=p-20+Math.random()*40;
+  const b1=rsi1>54, b5=p>ema9, b15=adx>23&&p>D.prev_close;
+  const set=(pfx,bull,pct,ind)=>{
+    document.getElementById(pfx+'b').textContent=bull?'BULLISH':'BEARISH';
+    document.getElementById(pfx+'b').style.color=bull?'var(--green)':'var(--red)';
+    document.getElementById(pfx+'i').textContent=ind;
+    const f=document.getElementById(pfx+'f');
+    f.style.width=pct+'%'; f.style.background=bull?'var(--green)':'var(--red)';
+  };
+  set('tf1',b1,rsi1,'RSI '+Math.round(rsi1)+' · MACD '+(b1?'↑':'↓'));
+  set('tf5',b5,Math.min(90,rsi5),'EMA '+(b5?'cross↑':'cross↓'));
+  set('tf15',b15,Math.min(90,adx*3.5),'ADX '+Math.round(adx)+' '+(b15?'↑Trend':'↓Trend'));
+}
+
+/* ---- SR ---- */
+function renderSR() {
+  document.getElementById('r3').textContent = Math.round(D.r3||D.r2+150).toLocaleString('en-IN');
+  document.getElementById('r2').textContent = Math.round(D.r2).toLocaleString('en-IN');
+  document.getElementById('r1').textContent = Math.round(D.r1).toLocaleString('en-IN');
+  document.getElementById('cmp').textContent = Math.round(price).toLocaleString('en-IN');
+  document.getElementById('s1').textContent = Math.round(D.s1).toLocaleString('en-IN');
+  document.getElementById('s2').textContent = Math.round(D.s2).toLocaleString('en-IN');
+  document.getElementById('s3').textContent = Math.round(D.s3||D.s2-150).toLocaleString('en-IN');
+}
+
+/* ---- OI chain ---- */
+function renderOI() {
+  const atm = Math.round(price/50)*50;
+  const strikes = [atm+150,atm+100,atm+50,atm,atm-50,atm-100,atm-150];
+  const oi = document.getElementById('oitbl');
+  if(!oi) return;
+  oi.innerHTML = strikes.map(sk=>{
+    const d = Math.abs(sk-D.max_pain)/50;
+    const ceOI = (22-d*2.5+Math.random()*3).toFixed(1)+'L';
+    const peOI = (20-Math.abs(sk-D.s1)/60+Math.random()*3).toFixed(1)+'L';
+    const isAtm = sk===atm;
+    return `<div class="ocrow${isAtm?' atm':''}"><div class="occe">${ceOI}</div><div class="ocsk">${sk.toLocaleString('en-IN')}</div><div class="ocpe">${peOI}</div></div>`;
+  }).join('');
+  const pcr=(1.0+Math.random()*0.45).toFixed(2);
+  const ii=document.getElementById('oiint');
+  if(ii) ii.innerHTML=`PCR <span style="color:${pcr>1?'var(--green)':'var(--red)'};font-family:var(--mono)">${pcr}</span> · `+(pcr>1?`<span style="color:var(--green)">Bullish</span> — put sellers dominate. CE OI wall at <span style="font-family:var(--mono)">${D.r1.toLocaleString('en-IN')}</span> is resistance. PE wall at <span style="font-family:var(--mono)">${D.s1.toLocaleString('en-IN')}</span> is support. Max pain: <span style="color:var(--amb);font-family:var(--mono)">${D.max_pain.toLocaleString('en-IN')}</span>.`:`<span style="color:var(--red)">Bearish</span> — heavy CE OI indicates strong sellers at resistance. Watch for breakdown.`);
+}
+
+/* ---- Plan tab render ---- */
+function renderPlan() {
+  const dte = calcDTE();
+  const vix = D.vix;
+  const ist = getIST();
+  const dateFmt = ist.toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'});
+  const el=document.getElementById('pdate'); if(el) el.textContent=dateFmt;
+  const ep=document.getElementById('ppc'); if(ep) ep.textContent=D.prev_close.toLocaleString('en-IN',{minimumFractionDigits:2});
+  const ed=document.getElementById('pdte'); if(ed) ed.textContent=dte;
+  const ev=document.getElementById('pvix'); if(ev) ev.textContent=vix;
+  // Scenario A (Bullish)
+  const ceEntry = bsPremium(D.prev_close, Math.round(D.r1/50)*50, dte, vix, true);
+  const ceTgt = Math.round(ceEntry*1.55);
+  const ceSl = Math.max(5, Math.round(ceEntry*0.62));
+  const setE=id=>document.getElementById(id);
+  if(setE('pa-str')) setE('pa-str').textContent = Math.round(D.r1/50)*50+' CE';
+  if(setE('pa-ent')) setE('pa-ent').textContent = '₹'+(ceEntry-8)+'–₹'+ceEntry;
+  if(setE('pa-tgt')) setE('pa-tgt').textContent = '₹'+ceTgt+'–₹'+(ceTgt+12);
+  if(setE('pa-sl'))  setE('pa-sl').textContent  = '₹'+ceSl;
+  if(setE('pa-tpnl')) setE('pa-tpnl').textContent = '+₹'+Math.round((ceTgt-ceEntry)*C.qty).toLocaleString('en-IN');
+  if(setE('pa-slpnl')) setE('pa-slpnl').textContent = '−₹'+Math.round((ceEntry-ceSl)*C.qty).toLocaleString('en-IN');
+  if(setE('pa-trig')) setE('pa-trig').textContent = D.prev_close.toFixed(0);
+  if(setE('pa-brk'))  setE('pa-brk').textContent = D.r1.toFixed(0);
+  // Scenario B (Bearish)
+  const peEntry = bsPremium(D.prev_close, Math.round((D.s1+50)/50)*50, dte, vix, false);
+  const peTgt = Math.round(peEntry*1.5);
+  const peSl  = Math.max(5, Math.round(peEntry*0.62));
+  if(setE('pb-str')) setE('pb-str').textContent = Math.round((D.s1+50)/50)*50+' PE';
+  if(setE('pb-ent')) setE('pb-ent').textContent = '₹'+(peEntry-8)+'–₹'+peEntry;
+  if(setE('pb-tgt')) setE('pb-tgt').textContent = '₹'+peTgt+'–₹'+(peTgt+10);
+  if(setE('pb-sl'))  setE('pb-sl').textContent  = '₹'+peSl;
+  if(setE('pb-tpnl')) setE('pb-tpnl').textContent = '+₹'+Math.round((peTgt-peEntry)*C.qty).toLocaleString('en-IN');
+  if(setE('pb-slpnl')) setE('pb-slpnl').textContent = '−₹'+Math.round((peEntry-peSl)*C.qty).toLocaleString('en-IN');
+  if(setE('pb-trig')) setE('pb-trig').textContent = D.s1.toFixed(0);
+}
+
+/* ---- Trade log ---- */
+function saveTrade() {
+  const ist=getIST();
+  const t={
+    strike:document.getElementById('istr').value,
+    res:document.getElementById('ires').value,
+    ent:parseFloat(document.getElementById('ient').value)||0,
+    exi:parseFloat(document.getElementById('iexi').value)||0,
+    time:`${String(ist.getHours()).padStart(2,'0')}:${String(ist.getMinutes()).padStart(2,'0')}`,
+    date:ist.toLocaleDateString('en-IN')
+  };
+  t.pnl=(t.exi-t.ent)*C.qty*(t.res==='win'?1:-1);
+  trades.unshift(t);
+  localStorage.setItem('nst_trades', JSON.stringify(trades));
+  document.getElementById('addform').style.display='none';
+  renderLog(); updateStats();
+}
+
+function renderLog() {
+  const el=document.getElementById('loglist');
+  if(!trades.length){el.innerHTML='<div style="text-align:center;color:var(--t3);font-size:12px;padding:18px">No trades logged yet</div>';return;}
+  el.innerHTML=trades.map(t=>`
+    <div class="lr">
+      <span class="lb ${t.res==='win'?'lb-ce':'lb-pe'}">${t.res.toUpperCase()}</span>
+      <div class="ldesc">${t.strike}<br>₹${t.ent}→₹${t.exi}</div>
+      <span style="font-family:var(--mono);font-size:12px;color:${t.pnl>=0?'var(--green)':'var(--red)'}">${t.pnl>=0?'+':''}₹${Math.abs(Math.round(t.pnl)).toLocaleString('en-IN')}</span>
+      <span class="lt">${t.time}</span>
+    </div>
+  `).join('');
+}
+
+function updateStats() {
+  const ist=getIST(), today=ist.toLocaleDateString('en-IN');
+  const td=trades.filter(t=>t.date===today);
+  const wins=td.filter(t=>t.res==='win').length;
+  const loss=td.filter(t=>t.res==='loss').length;
+  const pnlAll=trades.reduce((s,t)=>s+t.pnl,0);
+  const pnlTd=td.reduce((s,t)=>s+t.pnl,0);
+  document.getElementById('lwins').textContent=wins;
+  document.getElementById('lloss').textContent=loss;
+  const lp=document.getElementById('lpnl');
+  lp.textContent=(pnlAll>=0?'+':'')+'₹'+Math.abs(Math.round(pnlAll)).toLocaleString('en-IN');
+  lp.style.color=pnlAll>=0?'var(--green)':'var(--red)';
+  document.getElementById('bwins').textContent=wins+'W';
+  document.getElementById('bloss').textContent=loss+'L';
+  const bp=document.getElementById('bpnl');
+  bp.textContent=(pnlTd>=0?'+':'')+'₹'+Math.abs(Math.round(pnlTd)).toLocaleString('en-IN');
+  bp.style.color=pnlTd>=0?'var(--green)':'var(--red)';
+}
+
+/* ---- TradingView charts ---- */
+function initCharts() {
+  if(typeof TradingView==='undefined') return;
+  const base={autosize:true,symbol:'NSE:NIFTY',timezone:'Asia/Kolkata',theme:'dark',style:'1',locale:'en',toolbar_bg:'#0f1e35',enable_publishing:false,save_image:false};
+  new TradingView.widget(Object.assign({},base,{interval:'5',container_id:'tv1',studies:['RSI@tv-basicstudies','MACD@tv-basicstudies','BB@tv-basicstudies']}));
+  new TradingView.widget(Object.assign({},base,{interval:'15',container_id:'tv2',hide_top_toolbar:true,studies:['EMA@tv-basicstudies']}));
+  new TradingView.widget(Object.assign({},base,{interval:'1',container_id:'tv3',hide_top_toolbar:true,studies:['RSI@tv-basicstudies']}));
+}
+
+/* ---- Main tick ---- */
+function mainTick() {
+  tick++;
+  const mkt = checkMarket();
+
+  if(mkt.open) {
+    price = Math.min(D.r3||25200, Math.max(D.s3||23500, price+(Math.random()-0.475)*9));
+  }
+
+  const chg = price - D.prev_close;
+  const pct = (chg/D.prev_close*100).toFixed(2);
+  const sign = chg>=0?'+':'';
+  const pr = document.getElementById('sprice');
+  if(pr) pr.textContent = Math.floor(price).toLocaleString('en-IN')+'.'+String(Math.round((price%1)*100)).padStart(2,'0');
+  const ch = document.getElementById('schg');
+  if(ch){ ch.textContent=sign+Math.abs(chg).toFixed(2)+' ('+sign+pct+'%)'; ch.style.color=chg>=0?'var(--green)':'var(--red)'; }
+
+  const pcr=(0.95+Math.random()*0.55).toFixed(2);
+  const pcrEl=document.getElementById('spcr');
+  if(pcrEl){ pcrEl.textContent=pcr; pcrEl.style.color=pcr>1?'var(--green)':'var(--red)'; }
+  const vixCur=(D.vix+(Math.random()-0.5)*0.4).toFixed(1);
+  const vixEl=document.getElementById('svix'); if(vixEl) vixEl.textContent=vixCur;
+  const dteEl=document.getElementById('sdte'); if(dteEl) dteEl.textContent=calcDTE();
+  document.getElementById('cmp').textContent = Math.round(price).toLocaleString('en-IN');
+
+  if(mkt.open || tick===1) {
+    if(tick%3===0||tick===1) {
+      const sig=genSignal(price);
+      if(sig.conf>=C.minConf) renderSig(sig);
+      renderTF(price);
+    }
+    if(tick%8===0||tick===1) renderOI();
+  }
+  renderSR();
+}
+
+/* ---- INIT ---- */
+load();
+renderSR(); renderOI(); renderPlan(); renderLog(); updateStats();
+mainTick();
+initCharts();
+setInterval(mainTick, 5000);
+</script>
+</body>
+</html>
