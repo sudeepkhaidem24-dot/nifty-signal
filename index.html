@@ -6,7 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="NIFTY Signal">
-<meta name="theme-color" content="#060d1a">
+<meta name="cache-control" content="no-cache, no-store, must-revalidate">
+<meta name="pragma" content="no-cache">
+<meta name="expires" content="0">
 <title>NIFTY Signal Terminal v2</title>
 <!--
   ================================================================
@@ -155,9 +157,47 @@ html,body{background:var(--bg);color:var(--t1);font-family:var(--sans);min-heigh
 .tvc{border-radius:10px;overflow:hidden;border:1px solid var(--bdr);margin-bottom:10px;background:var(--card)}
 /* disc */
 .disc{font-size:10px;color:var(--t3);line-height:1.7;padding:9px 12px;background:var(--inp);border-radius:8px;margin-bottom:10px;border-left:2px solid var(--bdr2)}
+/* login */
+.lov{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.lbox{width:100%;max-width:340px}
+.llogo{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--blue);letter-spacing:.08em;margin-bottom:3px}
+.lsub{font-size:11px;color:var(--t3);margin-bottom:24px;font-family:var(--mono)}
+.llbl{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;font-family:var(--mono);display:block;margin-bottom:5px}
+.linp{width:100%;background:var(--inp);border:1px solid var(--bdr2);color:var(--t1);border-radius:10px;padding:12px 14px;font-family:var(--mono);font-size:16px;margin-bottom:13px;letter-spacing:.06em}
+.linp:focus{outline:none;border-color:var(--blue)}
+.linp::placeholder{color:var(--t3);font-size:13px}
+.lbtn{width:100%;padding:14px;border-radius:10px;background:var(--blue);border:none;color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:var(--sans);letter-spacing:.04em;margin-top:4px}
+.lbtn:disabled{opacity:.5;cursor:not-allowed}
+.lerr{font-size:11px;color:var(--red);font-family:var(--mono);margin-top:10px;text-align:center;min-height:16px}
+.lnote{font-size:10px;color:var(--t3);line-height:1.75;margin-top:18px;padding:10px 12px;background:var(--inp);border-radius:8px;border-left:2px solid var(--bdr2)}
 </style>
 </head>
 <body>
+
+<!-- ============================================================
+     LOGIN SCREEN — shown every morning, hides after auth
+============================================================ -->
+<div class="lov" id="loginScreen">
+  <div class="lbox">
+    <div class="llogo">NIFTY SIGNAL TERMINAL</div>
+    <div class="lsub">Angel One SmartAPI · Live Feed · Client K50033873</div>
+
+    <label class="llbl">Angel One Password</label>
+    <input class="linp" type="password" id="lpwd" placeholder="Enter your password" autocomplete="current-password">
+
+    <label class="llbl">TOTP (Google Authenticator 6-digit code)</label>
+    <input class="linp" type="number" id="ltotp" placeholder="000000" maxlength="6" autocomplete="one-time-code">
+
+    <button class="lbtn" id="lbtn" onclick="doLogin()">Login &amp; Start Live Feed</button>
+    <button onclick="skipLogin()" style="width:100%;padding:11px;border-radius:10px;background:transparent;border:1px solid var(--bdr2);color:var(--t2);font-size:13px;cursor:pointer;font-family:var(--sans);margin-top:10px">Skip — Use Yahoo Finance (delayed)</button>
+    <div class="lerr" id="lerr"></div>
+
+    <div class="lnote">
+      Your password and TOTP are used only to get a session token from Angel One. They are never stored anywhere. The token expires when you close the app. Enter a new TOTP code each morning.
+    </div>
+  </div>
+</div>
+
 <div class="app">
 
 <!-- HEADER -->
@@ -189,17 +229,29 @@ html,body{background:var(--bg);color:var(--t1);font-family:var(--sans);min-heigh
     <div id="csub" style="font-size:12px;color:var(--t2)">Opens at 9:15 AM IST</div>
   </div>
 
-  <div class="card" style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px">
-    <div>
-      <div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:3px">NIFTY 50 INDEX</div>
-      <div class="bigp" id="sprice">24,353.55</div>
-      <div class="pchg" id="schg"></div>
+  <div class="card" style="padding:12px 14px">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+          <div style="font-size:9px;color:var(--t3);font-family:var(--mono)">NIFTY 50 INDEX</div>
+          <div id="live-badge" style="font-size:9px;font-weight:700;padding:1px 7px;border-radius:10px;font-family:var(--mono);background:rgba(255,194,77,.12);color:var(--amb);border:1px solid var(--amb)">LOADING</div>
+        </div>
+        <div class="bigp" id="sprice">—</div>
+        <div class="pchg" id="schg"></div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:9px;color:var(--t3);font-family:var(--mono)">PCR (OI)</div>
+        <div id="spcr" style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green)">1.24</div>
+        <div style="font-size:10px;color:var(--t3);font-family:var(--mono)">VIX&nbsp;<span id="svix" style="color:var(--blue)">12.9</span>&nbsp;|&nbsp;DTE&nbsp;<span id="sdte" style="color:var(--amb)">4</span>d</div>
+      </div>
     </div>
-    <div style="text-align:right">
-      <div style="font-size:9px;color:var(--t3);font-family:var(--mono)">PCR (OI)</div>
-      <div id="spcr" style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green)">1.24</div>
-      <div style="font-size:10px;color:var(--t3);font-family:var(--mono)">VIX&nbsp;<span id="svix" style="color:var(--blue)">12.9</span>&nbsp;|&nbsp;DTE&nbsp;<span id="sdte" style="color:var(--amb)">4</span>d</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;padding-top:9px;border-top:1px solid var(--bdr)">
+      <div style="text-align:center"><div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:2px">OPEN</div><div id="s-open" style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--t2)">—</div></div>
+      <div style="text-align:center"><div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:2px">HIGH</div><div id="s-high" style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--green)">—</div></div>
+      <div style="text-align:center"><div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:2px">LOW</div><div id="s-low" style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--red)">—</div></div>
+      <div style="text-align:center"><div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:2px">PREV</div><div id="s-prev" style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--t2)">—</div></div>
     </div>
+    <div id="fetch-status" style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-top:6px;text-align:right">Connecting to live feed...</div>
   </div>
 
   <div class="tfrow">
@@ -309,13 +361,13 @@ html,body{background:var(--bg);color:var(--t1);font-family:var(--sans);min-heigh
 
   <div class="card">
     <div class="clbl">Support / Resistance · Today</div>
-    <div class="srr"><span style="color:var(--red);font-size:11px">R3</span><span id="r3" style="font-size:13px">24,700</span></div>
-    <div class="srr"><span style="color:var(--red);font-size:11px">R2</span><span id="r2" style="font-size:13px">24,550</span></div>
-    <div class="srr"><span style="color:var(--red);font-size:11px">R1</span><span id="r1" style="font-size:13px">24,400</span></div>
-    <div class="srr srcmp"><span style="color:var(--blue);font-size:11px">CMP</span><span id="cmp" style="font-size:13px;color:var(--blue)">24,353</span></div>
+    <div class="srr"><span style="color:var(--red);font-size:11px">R3</span><span id="r3" style="font-size:13px">24,650</span></div>
+    <div class="srr"><span style="color:var(--red);font-size:11px">R2</span><span id="r2" style="font-size:13px">24,500</span></div>
+    <div class="srr"><span style="color:var(--red);font-size:11px">R1</span><span id="r1" style="font-size:13px">24,350</span></div>
+    <div class="srr srcmp"><span style="color:var(--blue);font-size:11px">CMP</span><span id="cmp" style="font-size:13px;color:var(--blue)">24,302</span></div>
     <div class="srr"><span style="color:var(--green);font-size:11px">S1</span><span id="s1" style="font-size:13px">24,200</span></div>
     <div class="srr"><span style="color:var(--green);font-size:11px">S2</span><span id="s2" style="font-size:13px">24,050</span></div>
-    <div class="srr"><span style="color:var(--green);font-size:11px">S3</span><span id="s3" style="font-size:13px">23,830</span></div>
+    <div class="srr"><span style="color:var(--green);font-size:11px">S3</span><span id="s3" style="font-size:13px">23,900</span></div>
   </div>
 
   <div class="card">
@@ -507,9 +559,9 @@ html,body{background:var(--bg);color:var(--t1);font-family:var(--sans);min-heigh
   <!-- ==[ UPDATE DAILY ]== Change every morning before 9:15 AM -->
   <div class="card">
     <div class="clbl">⚡ Daily Update — Change Every Morning</div>
-    <div class="setr"><div class="setlbl">Prev Close</div><input class="setinp" id="dpc" type="number" value="24353.55" step="0.05"></div>
-    <div class="setr"><div class="setlbl">Resistance 1</div><input class="setinp" id="dr1" type="number" value="24400"></div>
-    <div class="setr"><div class="setlbl">Resistance 2</div><input class="setinp" id="dr2" type="number" value="24550"></div>
+    <div class="setr"><div class="setlbl">Prev Close</div><input class="setinp" id="dpc" type="number" value="24302.20" step="0.05"></div>
+    <div class="setr"><div class="setlbl">Resistance 1</div><input class="setinp" id="dr1" type="number" value="24350"></div>
+    <div class="setr"><div class="setlbl">Resistance 2</div><input class="setinp" id="dr2" type="number" value="24500"></div>
     <div class="setr"><div class="setlbl">Support 1</div><input class="setinp" id="ds1" type="number" value="24200"></div>
     <div class="setr"><div class="setlbl">Support 2</div><input class="setinp" id="ds2" type="number" value="24050"></div>
     <div class="setr"><div class="setlbl">Max Pain</div><input class="setinp" id="dmp" type="number" value="24250"></div>
@@ -554,9 +606,9 @@ html,body{background:var(--bg);color:var(--t1);font-family:var(--sans);min-heigh
    ==[ EDIT HERE ]== DEFAULT DAILY DATA — update each morning
    ================================================================ */
 let D = {
-  prev_close: 24353.55,
-  r1: 24400, r2: 24550, r3: 24700,
-  s1: 24200, s2: 24050, s3: 23830,
+  prev_close: 24302.20,
+  r1: 24350, r2: 24500, r3: 24650,
+  s1: 24200, s2: 24050, s3: 23900,
   max_pain: 24250,
   vix: 12.9, fii: 683, dii: -4721
 };
@@ -936,48 +988,272 @@ function initCharts() {
   new TradingView.widget(Object.assign({},base,{interval:'1',container_id:'tv3',hide_top_toolbar:true,studies:['RSI@tv-basicstudies']}));
 }
 
-/* ---- Main tick ---- */
-function mainTick() {
-  tick++;
-  const mkt = checkMarket();
+/* ================================================================
+   ANGEL ONE SMARTAPI — Live Price Engine
+   API Key   : DqHDBaqt
+   Client ID : K50033873
+   Secret Key: f8b25e1c-3b2a-47d9-9608-d5c5601157d1
+================================================================ */
+const AO = {
+  apiKey    : 'DqHDBaqt',
+  clientId  : 'K50033873',
+  secretKey : 'f8b25e1c-3b2a-47d9-9608-d5c5601157d1',
+  loginUrl  : 'https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword',
+  wsUrl     : 'wss://smartapisocket.angelbroking.com/smart-stream',
+  niftyToken: '99926000',   // NIFTY 50 index token on NSE
+};
 
-  if(mkt.open) {
-    price = Math.min(D.r3||25200, Math.max(D.s3||23500, price+(Math.random()-0.475)*9));
+let aoSession = null;  // { jwtToken, feedToken, refreshToken }
+let aoWs = null;
+let wsConnected = false;
+let isLive = false;
+let dayOpen = null, dayHigh = null, dayLow = null;
+let lastGoodPrice = D.prev_close;
+let fetchTimer = null;
+
+function fmtPrice(n) {
+  if(!n || isNaN(n)) return '—';
+  const s = n.toFixed(2).split('.');
+  return parseInt(s[0]).toLocaleString('en-IN') + '.' + s[1];
+}
+
+function setLiveBadge(state) {
+  const b = document.getElementById('live-badge');
+  if(!b) return;
+  const styles = {
+    live   : ['● LIVE WS', 'rgba(0,224,158,.15)', 'var(--green)', 'var(--green)'],
+    delayed: ['◷ REST API', 'rgba(255,194,77,.15)', 'var(--amb)', 'var(--amb)'],
+    offline: ['◌ OFFLINE',  'rgba(255,68,102,.15)', 'var(--red)',   'var(--red)'],
+  };
+  const [txt, bg, col, brd] = styles[state] || styles.offline;
+  b.textContent = txt;
+  b.style.cssText = `font-size:9px;font-weight:700;padding:1px 7px;border-radius:10px;font-family:var(--mono);background:${bg};color:${col};border:1px solid ${brd}`;
+}
+
+function updatePriceDisplay(p, prev, open, high, low, src) {
+  if(!p || isNaN(p) || p < 15000 || p > 40000) return;
+  price = p; lastGoodPrice = p;
+  if(open)  dayOpen = open;
+  if(high)  dayHigh = Math.max(high, dayHigh||0);
+  if(low)   dayLow  = Math.min(low,  dayLow||99999);
+
+  const chg = p - prev, pct = (chg/prev*100).toFixed(2), sign = chg>=0?'+':'';
+  const el = id => document.getElementById(id);
+  if(el('sprice')) el('sprice').textContent = fmtPrice(p);
+  if(el('schg'))   { el('schg').textContent = sign+Math.abs(chg).toFixed(2)+' ('+sign+pct+'%)'; el('schg').style.color = chg>=0?'var(--green)':'var(--red)'; }
+  if(el('s-open')) el('s-open').textContent = fmtPrice(dayOpen||open);
+  if(el('s-high')) el('s-high').textContent = fmtPrice(dayHigh||high);
+  if(el('s-low'))  el('s-low').textContent  = fmtPrice(dayLow||low);
+  if(el('s-prev')) el('s-prev').textContent = fmtPrice(prev);
+  if(el('cmp'))    el('cmp').textContent = Math.round(p).toLocaleString('en-IN');
+
+  const ist = getIST();
+  const ts  = [ist.getHours(),ist.getMinutes(),ist.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
+  if(el('fetch-status')) el('fetch-status').textContent = src+' · '+ts+' IST';
+}
+
+function skipLogin() {
+  document.getElementById('loginScreen').style.display = 'none';
+  startMainLoop();
+  fetchYahooFallback();
+}
+
+/* ---- Login screen ---- */
+async function doLogin() {
+  const pwd  = document.getElementById('lpwd').value.trim();
+  const totp = document.getElementById('ltotp').value.trim();
+  const errEl = document.getElementById('lerr');
+  const btn   = document.getElementById('lbtn');
+
+  errEl.textContent = '';
+  if(!pwd)  { errEl.textContent = 'Enter your password'; return; }
+  if(!totp || totp.length < 6) { errEl.textContent = 'Enter 6-digit TOTP code'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Connecting to Angel One...';
+
+  try {
+    const res = await fetch(AO.loginUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type'     : 'application/json',
+        'Accept'           : 'application/json',
+        'X-APIKey'         : AO.apiKey,
+        'X-SourceID'       : 'WEB',
+        'X-ClientLocalIP'  : '192.168.1.1',
+        'X-ClientPublicIP' : '49.47.140.217',
+        'X-MACAddress'     : '00-00-00-00-00-00',
+        'X-PrivateKey'     : AO.apiKey,
+      },
+      body: JSON.stringify({ clientcode: AO.clientId, password: pwd, totp: totp }),
+    });
+
+    const data = await res.json();
+
+    if(data.status && data.data && data.data.jwtToken) {
+      aoSession = data.data;
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('mstatus').textContent = '● ANGEL ONE CONNECTED';
+      connectWebSocket();
+      startMainLoop();
+    } else {
+      const msg = data.message || data.errorMessage || 'Login failed';
+      errEl.textContent = '✗ ' + msg;
+      btn.disabled = false;
+      btn.textContent = 'Login & Start Live Feed';
+    }
+  } catch(e) {
+    // CORS or network error — try Yahoo Finance fallback
+    errEl.textContent = '⚠ Angel One CORS blocked. Switching to Yahoo Finance...';
+    setTimeout(() => {
+      document.getElementById('loginScreen').style.display = 'none';
+      startMainLoop();
+      fetchYahooFallback();
+    }, 2000);
+  }
+}
+
+/* ---- Angel One WebSocket ---- */
+function connectWebSocket() {
+  if(!aoSession) return;
+  if(aoWs) { try { aoWs.close(); } catch(e){} }
+
+  aoWs = new WebSocket(AO.wsUrl);
+  aoWs.binaryType = 'arraybuffer';
+
+  aoWs.onopen = () => {
+    wsConnected = true;
+    setLiveBadge('live');
+    // Auth handshake
+    aoWs.send(JSON.stringify({
+      correlationID: 'nifty_signal',
+      action: 1,
+      params: {
+        mode: 1,   // LTP only (51 bytes, lightest)
+        tokenList: [{ exchangeType: 1, tokens: [AO.niftyToken] }]
+      }
+    }));
+  };
+
+  aoWs.onmessage = (evt) => {
+    try {
+      if(typeof evt.data === 'string') return; // skip text frames
+      const buf  = evt.data;
+      const view = new DataView(buf);
+      // LTP mode packet: 51 bytes
+      // Offset 44: last traded price (int64 big-endian, paise → divide by 100)
+      if(buf.byteLength >= 51) {
+        const ltpPaise = Number(view.getBigInt64(43, false));
+        const ltp = ltpPaise / 100;
+        if(ltp > 15000 && ltp < 40000) {
+          isLive = true;
+          setLiveBadge('live');
+          updatePriceDisplay(ltp, D.prev_close, dayOpen, dayHigh, dayLow, 'Angel One WebSocket');
+          triggerSignalUpdate();
+        }
+      }
+    } catch(e) {}
+  };
+
+  aoWs.onerror = () => { wsConnected = false; setLiveBadge('delayed'); fetchYahooFallback(); };
+  aoWs.onclose = () => {
+    wsConnected = false;
+    setLiveBadge('delayed');
+    // Reconnect after 5s
+    setTimeout(() => { if(aoSession) connectWebSocket(); }, 5000);
+  };
+}
+
+/* ---- Yahoo Finance fallback (when WS unavailable) ---- */
+async function fetchYahooFallback() {
+  const urls = [
+    'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d',
+    'https://query2.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m&range=1d',
+  ];
+  const proxies = [
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+  ];
+
+  const attempts = [];
+  for(const u of urls) {
+    attempts.push(fetch(u, {signal:AbortSignal.timeout(5000)}).then(r=>r.json()));
+    for(const px of proxies) {
+      attempts.push(fetch(px(u),{signal:AbortSignal.timeout(7000)})
+        .then(r=>r.text()).then(t=>{
+          try{ return JSON.parse(t); }
+          catch(e){ const j=JSON.parse(t); return JSON.parse(j.contents||j.body||'{}'); }
+        }));
+    }
   }
 
-  const chg = price - D.prev_close;
-  const pct = (chg/D.prev_close*100).toFixed(2);
-  const sign = chg>=0?'+':'';
-  const pr = document.getElementById('sprice');
-  if(pr) pr.textContent = Math.floor(price).toLocaleString('en-IN')+'.'+String(Math.round((price%1)*100)).padStart(2,'0');
-  const ch = document.getElementById('schg');
-  if(ch){ ch.textContent=sign+Math.abs(chg).toFixed(2)+' ('+sign+pct+'%)'; ch.style.color=chg>=0?'var(--green)':'var(--red)'; }
+  try {
+    const data = await Promise.any(attempts.map(p => p.then(d => {
+      const m = d.chart.result[0].meta;
+      if(!m.regularMarketPrice || m.regularMarketPrice < 15000) throw 0;
+      return m;
+    })));
+    setLiveBadge('delayed');
+    updatePriceDisplay(
+      data.regularMarketPrice,
+      data.previousClose || data.chartPreviousClose || D.prev_close,
+      data.regularMarketOpen, data.regularMarketDayHigh, data.regularMarketDayLow,
+      'Yahoo Finance (15min delay)'
+    );
+    triggerSignalUpdate();
+  } catch(e) {
+    setLiveBadge('offline');
+    const el = document.getElementById('fetch-status');
+    if(el) el.textContent = 'All sources offline · Last known: '+fmtPrice(lastGoodPrice);
+  }
+}
 
-  const pcr=(0.95+Math.random()*0.55).toFixed(2);
-  const pcrEl=document.getElementById('spcr');
-  if(pcrEl){ pcrEl.textContent=pcr; pcrEl.style.color=pcr>1?'var(--green)':'var(--red)'; }
-  const vixCur=(D.vix+(Math.random()-0.5)*0.4).toFixed(1);
-  const vixEl=document.getElementById('svix'); if(vixEl) vixEl.textContent=vixCur;
-  const dteEl=document.getElementById('sdte'); if(dteEl) dteEl.textContent=calcDTE();
-  document.getElementById('cmp').textContent = Math.round(price).toLocaleString('en-IN');
-
-  if(mkt.open || tick===1) {
-    if(tick%3===0||tick===1) {
-      const sig=genSignal(price);
-      if(sig.conf>=C.minConf) renderSig(sig);
-      renderTF(price);
-    }
-    if(tick%8===0||tick===1) renderOI();
+/* ---- Signal trigger (called on every price update) ---- */
+let lastSigTime = 0;
+function triggerSignalUpdate() {
+  const now = Date.now();
+  if(now - lastSigTime < 3000) return; // max once per 3s
+  lastSigTime = now;
+  const mkt = checkMarket();
+  if(mkt.open || tick===0) {
+    const sig = genSignal(price);
+    if(sig.conf >= C.minConf) renderSig(sig);
+    renderTF(price);
   }
   renderSR();
 }
 
-/* ---- INIT ---- */
+/* ---- Main loop (runs after login) ---- */
+function startMainLoop() {
+  load();
+  renderSR(); renderOI(); renderPlan(); renderLog(); updateStats();
+
+  // If no WebSocket (Yahoo mode), poll every 5s market / 30s closed
+  function poll() {
+    tick++;
+    checkMarket();
+    const mkt = checkMarket();
+    const pcr=(0.95+Math.random()*0.55).toFixed(2);
+    const pe=document.getElementById('spcr'); if(pe){pe.textContent=pcr;pe.style.color=pcr>1?'var(--green)':'var(--red)';}
+    const vixCur=(D.vix+(Math.random()-0.5)*0.4).toFixed(1);
+    const ve=document.getElementById('svix'); if(ve) ve.textContent=vixCur;
+    const de=document.getElementById('sdte'); if(de) de.textContent=calcDTE();
+    if(!wsConnected) fetchYahooFallback();
+    if(tick%4===0||tick===1) renderOI();
+    const interval = mkt.open ? 5000 : 30000;
+    fetchTimer = setTimeout(poll, interval);
+  }
+  poll();
+  initCharts();
+}
+
+// Clock always runs — login screen stays visible until user acts
+setInterval(() => { checkMarket(); }, 1000);
 load();
-renderSR(); renderOI(); renderPlan(); renderLog(); updateStats();
-mainTick();
-initCharts();
-setInterval(mainTick, 5000);
+renderSR();
+// Login screen is shown by default (display:flex in HTML)
+// startMainLoop() is called only after doLogin() or skipLogin()
 </script>
 </body>
 </html>
